@@ -1,0 +1,185 @@
+syntax = "proto3";
+
+package graphyne;
+
+service SearchService {
+  rpc Search(SearchRequest) returns (SearchResponse);
+  rpc Suggest(SuggestRequest) returns (SuggestResponse);
+}
+
+service DocumentService {
+  rpc PushDocument(PushDocumentRequest) returns (PushDocumentResponse);
+  rpc PopDocument(PopDocumentRequest) returns (PopDocumentResponse);
+  rpc GetDocument(GetDocumentRequest) returns (GetDocumentResponse);
+}
+
+service VectorService {
+  rpc AddEmbedding(AddEmbeddingRequest) returns (AddEmbeddingResponse);
+  rpc SearchVector(SearchVectorRequest) returns (SearchVectorResponse);
+}
+
+service GraphService {
+  rpc AddNode(AddNodeRequest) returns (AddNodeResponse);
+  rpc AddEdge(AddEdgeRequest) returns (AddEdgeResponse);
+  rpc TraverseGraph(TraverseGraphRequest) returns (TraverseGraphResponse);
+}
+
+service MemoryService {
+  rpc StoreMemory(StoreMemoryRequest) returns (StoreMemoryResponse);
+  rpc RecallMemory(RecallMemoryRequest) returns (RecallMemoryResponse);
+}
+
+message SearchRequest {
+  string collection = 1;
+  string bucket = 2;
+  string query = 3;
+  int32 limit = 4;
+  string mode = 5;  // "lexical", "vector", "graph", "hybrid"
+}
+
+message SearchResponse {
+  repeated SearchResult results = 1;
+}
+
+message SearchResult {
+  string id = 1;
+  float score = 2;
+  string data = 3;
+}
+
+message SuggestRequest {
+  string collection = 1;
+  string bucket = 2;
+  string query = 3;
+  int32 limit = 4;
+}
+
+message SuggestResponse {
+  repeated string suggestions = 1;
+}
+
+message PushDocumentRequest {
+  string collection = 1;
+  string bucket = 2;
+  string id = 3;
+  string content = 4;
+  map<string, string> metadata = 5;
+}
+
+message PushDocumentResponse {
+  bool success = 1;
+  string message = 2;
+}
+
+message PopDocumentRequest {
+  string collection = 1;
+  string bucket = 2;
+  string id = 3;
+}
+
+message PopDocumentResponse {
+  bool success = 1;
+  string message = 2;
+}
+
+message GetDocumentRequest {
+  string collection = 1;
+  string bucket = 2;
+  string id = 3;
+}
+
+message GetDocumentResponse {
+  string id = 1;
+  string content = 2;
+  map<string, string> metadata = 3;
+}
+
+message AddEmbeddingRequest {
+  string id = 1;
+  repeated float values = 2;
+  map<string, string> metadata = 3;
+}
+
+message AddEmbeddingResponse {
+  bool success = 1;
+  string message = 2;
+}
+
+message SearchVectorRequest {
+  repeated float query = 1;
+  int32 limit = 2;
+  string collection = 3;
+}
+
+message SearchVectorResponse {
+  repeated SearchResult results = 1;
+}
+
+message AddNodeRequest {
+  string id = 1;
+  string node_type = 2;
+  map<string, string> properties = 3;
+}
+
+message AddNodeResponse {
+  bool success = 1;
+  string message = 2;
+}
+
+message AddEdgeRequest {
+  string from_id = 1;
+  string to_id = 2;
+  string edge_type = 3;
+  map<string, string> properties = 4;
+}
+
+message AddEdgeResponse {
+  bool success = 1;
+  string message = 2;
+}
+
+message TraverseGraphRequest {
+  string start_node_id = 1;
+  string edge_type = 2;
+  int32 max_depth = 3;
+}
+
+message TraverseGraphResponse {
+  repeated GraphNode nodes = 1;
+  repeated GraphEdge edges = 2;
+}
+
+message GraphNode {
+  string id = 1;
+  string node_type = 2;
+  map<string, string> properties = 3;
+}
+
+message GraphEdge {
+  string from_id = 1;
+  string to_id = 2;
+  string edge_type = 3;
+  map<string, string> properties = 4;
+}
+
+message StoreMemoryRequest {
+  string key = 1;
+  string value = 2;
+  map<string, string> metadata = 3;
+}
+
+message StoreMemoryResponse {
+  bool success = 1;
+  string message = 2;
+}
+
+message RecallMemoryRequest {
+  string key = 1;
+  string query = 2;
+}
+
+message RecallMemoryResponse {
+  string key = 1;
+  string value = 2;
+  map<string, string> metadata = 3;
+}
