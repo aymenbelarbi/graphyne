@@ -5,5 +5,9 @@ pub mod vector;
 pub mod graph;
 pub mod scoring;
 pub mod memory;  // New module for Phase 4
+pub mod metrics;   // New module for Phase 6
+pub mod logging;   // New module for Phase 6
+pub mod health;    // New module for Phase 6
+pub mod admin;     // New module for Phase 6
 
 pub use error::{GraphyneError, Result};

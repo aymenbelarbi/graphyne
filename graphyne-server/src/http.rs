@@ -195,10 +195,13 @@ pub struct GraphRAGResponse {
     pub explanation: Option<String>,
 }
 
-/// App state holding the memory store
+/// App state holding the memory store and admin components
 #[derive(Clone)]
 pub struct AppState {
     pub memory_store: Arc<tokio::sync::Mutex<MemoryStore>>,
+    pub metrics: Arc<graphyne_core::metrics::GraphyneMetrics>,
+    pub health_checker: Arc<graphyne_core::health::HealthChecker>,
+    pub admin_service: Arc<tokio::sync::Mutex<graphyne_core::admin::AdminService>>,
 }
 
 /// Create the HTTP router with all endpoints
@@ -206,6 +209,17 @@ pub fn create_router(state: AppState) -> Router {
     Router::new()
         // Health check
         .route("/health", get(health_check))
+        
+        // Prometheus metrics endpoint
+        .route("/metrics", get(metrics_handler))
+        
+        // Admin endpoints
+        .route("/admin/stats", get(admin_stats_handler))
+        .route("/admin/health", get(admin_health_handler))
+        .route("/admin/flush", post(admin_flush_handler))
+        .route("/admin/backup", post(admin_backup_handler))
+        .route("/admin/restore", post(admin_restore_handler))
+        .route("/admin/compact", post(admin_compact_handler))
         
         // Search endpoint
         .route("/v1/search", get(search_handler))
@@ -630,4 +644,177 @@ pub async fn start_http_server(addr: SocketAddr, state: AppState) -> Result<(), 
     axum::serve(listener, app).await?;
     
     Ok(())
+}
+
+/// Metrics handler for Prometheus
+async fn metrics_handler(
+    State(state): State<AppState>,
+) -> Result<String, (axum::http::StatusCode, String)> {
+    info!(target: "graphyne::http::admin", "Metrics request");
+    match state.metrics.export() {
+        Ok(metrics) => Ok(metrics),
+        Err(e) => {
+            error!(target: "graphyne::http::admin", error = %e, "Failed to export metrics");
+            Err((axum::http::StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to export metrics: {}", e)))
+        }
+    }
+}
+
+/// Admin stats handler
+async fn admin_stats_handler(
+    State(state): State<AppState>,
+) -> Json<serde_json::Value> {
+    info!(target: "graphyne::http::admin", "Admin stats request");
+    let admin = state.admin_service.lock().await;
+    let stats = admin.get_stats();
+    
+    Json(serde_json::json!({
+        "success": true,
+        "message": "Stats retrieved successfully",
+        "uptime_seconds": stats.uptime_seconds,
+        "total_searches": stats.total_searches,
+        "total_memories": stats.total_memories,
+        "storage_size_bytes": stats.storage_size_bytes,
+        "active_connections": stats.active_connections,
+        "timestamp": stats.timestamp
+    }))
+}
+
+/// Admin health handler with detailed checks
+async fn admin_health_handler(
+    State(state): State<AppState>,
+    Query(params): Query<HashMap<String, String>>,
+) -> Json<serde_json::Value> {
+    let detailed = params.get("detailed").map(|v| v == "true").unwrap_or(false);
+    info!(target: "graphyne::http::admin", "Admin health request, detailed={}", detailed);
+    
+    let health_status = state.health_checker.check_health();
+    
+    let checks = if detailed {
+        Some(health_status.checks.iter().map(|c| {
+            serde_json::json!({
+                "name": c.name,
+                "status": c.status,
+                "message": c.message,
+                "duration_ms": c.duration_ms
+            })
+        }).collect::<Vec<_>>())
+    } else {
+        None
+    };
+    
+    Json(serde_json::json!({
+        "success": true,
+        "status": health_status.status,
+        "version": health_status.version,
+        "uptime_seconds": health_status.uptime_seconds,
+        "checks": checks
+    }))
+}
+
+/// Admin flush handler
+async fn admin_flush_handler(
+    State(state): State<AppState>,
+    Json(body): Json<HashMap<String, bool>>,
+) -> Json<serde_json::Value> {
+    let sync = body.get("sync").copied().unwrap_or(false);
+    info!(target: "graphyne::http::admin", "Admin flush request, sync={}", sync);
+    
+    let mut admin = state.admin_service.lock().await;
+    match admin.flush() {
+        Ok(_) => Json(serde_json::json!({
+            "success": true,
+            "message": "Flush completed successfully"
+        })),
+        Err(e) => {
+            error!(target: "graphyne::http::admin", error = %e, "Flush failed");
+            Json(serde_json::json!({
+                "success": false,
+                "message": format!("Flush failed: {}", e)
+            }))
+        }
+    }
+}
+
+/// Admin backup request body
+#[derive(Debug, Deserialize)]
+pub struct BackupBody {
+    pub path: String,
+}
+
+/// Admin backup handler
+async fn admin_backup_handler(
+    State(state): State<AppState>,
+    Json(body): Json<BackupBody>,
+) -> Json<serde_json::Value> {
+    info!(target: "graphyne::http::admin", path = %body.path, "Admin backup request");
+    
+    let admin = state.admin_service.lock().await;
+    match admin.backup(&body.path) {
+        Ok(resp) => Json(serde_json::json!({
+            "success": resp.success,
+            "message": resp.message,
+            "backup_path": resp.backup_path,
+            "size_bytes": resp.size_bytes
+        })),
+        Err(e) => {
+            error!(target: "graphyne::http::admin", error = %e, "Backup failed");
+            Json(serde_json::json!({
+                "success": false,
+                "message": format!("Backup failed: {}", e)
+            }))
+        }
+    }
+}
+
+/// Admin restore request body
+#[derive(Debug, Deserialize)]
+pub struct RestoreBody {
+    pub path: String,
+}
+
+/// Admin restore handler
+async fn admin_restore_handler(
+    State(state): State<AppState>,
+    Json(body): Json<RestoreBody>,
+) -> Json<serde_json::Value> {
+    info!(target: "graphyne::http::admin", path = %body.path, "Admin restore request");
+    
+    let mut admin = state.admin_service.lock().await;
+    match admin.restore(&body.path) {
+        Ok(resp) => Json(serde_json::json!({
+            "success": resp.success,
+            "message": resp.message,
+            "items_restored": resp.items_restored
+        })),
+        Err(e) => {
+            error!(target: "graphyne::http::admin", error = %e, "Restore failed");
+            Json(serde_json::json!({
+                "success": false,
+                "message": format!("Restore failed: {}", e)
+            }))
+        }
+    }
+}
+
+/// Admin compact handler
+async fn admin_compact_handler(
+    State(state): State<AppState>,
+) -> Json<serde_json::Value> {
+    info!(target: "graphyne::http::admin", "Admin compact request");
+    
+    let mut admin = state.admin_service.lock().await;
+    match admin.compact() {
+        Ok(_) => Json(serde_json::json!({
+            "success": true,
+            "message": "Compact completed successfully"
+        })),
+        Err(e) => {
+            error!(target: "graphyne::http::admin", error = %e, "Compact failed");
+            Json(serde_json::json!({
+                "success": false,
+                "message": format!("Compact failed: {}", e)
+            }))
+        }
+    }
 }

@@ -662,6 +662,74 @@ cargo run -p graphyne-cli -- rag query \
 - ✅ CLI commands for graph reasoning (`graph rag query`, `graph rag subgraph`, `graph rag expand`)
 - ✅ Graph-based agent memory recall
 
+
+### Phase 6 (Complete) ✅
+- ✅ Prometheus-compatible metrics (search, memory, storage, API metrics)
+- ✅ Structured logging with tracing (log_search, log_memory, log_storage macros)
+- ✅ Health checks with detailed status (storage, memory, overall status)
+- ✅ Admin operations (stats, flush, backup, restore, compact)
+- ✅ AdminService added to gRPC proto and server
+- ✅ HTTP endpoints for control & observability:
+  - `GET /health` - Health check
+  - `GET /metrics` - Prometheus metrics
+  - `GET /admin/stats` - Admin statistics
+  - `POST /admin/flush` - Flush data
+  - `POST /admin/backup` - Create backup
+  - `POST /admin/restore` - Restore from backup
+  - `POST /admin/compact` - Compact storage
+- ✅ CLI admin commands (stats, health, flush, backup, restore, compact)
+- ✅ Logging initialization in main.rs
+
+## Control & Observability
+
+Graphyne now includes production-ready observability features:
+
+### Metrics (Prometheus-compatible)
+- Search metrics: `graphyne_search_requests_total`, `graphyne_search_duration_seconds`, `graphyne_search_results_count`
+- Memory metrics: `graphyne_memory_stored_total`, `graphyne_memory_recalled_total`, `graphyne_memory_entries_current`
+- Storage metrics: `graphyne_storage_operations_total`, `graphyne_storage_operation_duration_seconds`
+- API metrics: `graphyne_grpc_requests_total`, `graphyne_http_requests_total`
+
+Access metrics at: `GET /metrics` (Prometheus format)
+
+### Structured Logging
+- Uses `tracing` crate with configurable log levels
+- Initialize with: `graphyne_core::logging::init_logging("info")`
+
+### Health Checks
+- Overall status: `healthy`, `degraded`, `unhealthy`
+- Checks storage accessibility and memory store operational status
+- Detailed checks available with `?detailed=true` parameter
+- Access at: `GET /health` or `GET /admin/health`
+
+### Admin Operations
+- **Stats**: Get system statistics (uptime, searches, memories, storage size)
+- **Flush**: Flush all buffers to disk
+- **Backup**: Create backup of data to specified path
+- **Restore**: Restore data from backup
+- **Compact**: Compact storage for better performance
+
+### CLI Admin Commands
+```bash
+# Show admin statistics
+cargo run --package graphyne-cli -- admin stats
+
+# Check health status
+cargo run --package graphyne-cli -- admin health
+
+# Flush data to disk
+cargo run --package graphyne-cli -- admin flush
+
+# Create backup
+cargo run --package graphyne-cli -- admin backup --path /path/to/backup
+
+# Restore from backup
+cargo run --package graphyne-cli -- admin restore --path /path/to/backup
+
+# Compact storage
+cargo run --package graphyne-cli -- admin compact
+```
+
 ## License
 
 Apache License 2.0

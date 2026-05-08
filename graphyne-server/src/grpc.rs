@@ -385,3 +385,205 @@ impl graph_rag_service_server::GraphRAGService for GraphRAGServiceImpl {
         }))
     }
 }
+
+/// Admin service implementation for control and observability
+pub struct AdminServiceImpl {
+    metrics: std::sync::Arc<graphyne_core::metrics::GraphyneMetrics>,
+    health_checker: graphyne_core::health::HealthChecker,
+    admin_service: std::sync::Mutex<graphyne_core::admin::AdminService>,
+}
+
+impl AdminServiceImpl {
+    pub fn new(
+        metrics: std::sync::Arc<graphyne_core::metrics::GraphyneMetrics>,
+        health_checker: graphyne_core::health::HealthChecker,
+        admin_service: graphyne_core::admin::AdminService,
+    ) -> Self {
+        Self {
+            metrics,
+            health_checker,
+            admin_service: std::sync::Mutex::new(admin_service),
+        }
+    }
+}
+
+#[tonic::async_trait]
+impl admin_service_server::AdminService for AdminServiceImpl {
+    async fn get_stats(
+        &self,
+        request: Request<GetStatsRequest>,
+    ) -> Result<Response<GetStatsResponse>, Status> {
+        let _req = request.into_inner();
+        
+        tracing::info!(target: "graphyne::grpc::admin", "GetStats request");
+        
+        let admin = self.admin_service.lock().unwrap();
+        let stats = admin.get_stats();
+        
+        Ok(Response::new(GetStatsResponse {
+            success: true,
+            message: "Stats retrieved successfully".to_string(),
+            uptime_seconds: stats.uptime_seconds,
+            total_searches: stats.total_searches,
+            total_memories: stats.total_memories,
+            storage_size_bytes: stats.storage_size_bytes,
+            active_connections: stats.active_connections,
+            timestamp: stats.timestamp,
+        }))
+    }
+    
+    async fn get_health(
+        &self,
+        request: Request<GetHealthRequest>,
+    ) -> Result<Response<GetHealthResponse>, Status> {
+        let req = request.into_inner();
+        
+        tracing::info!(target: "graphyne::grpc::admin", "GetHealth request, detailed={}", req.detailed);
+        
+        let health_status = self.health_checker.check_health();
+        
+        let checks = if req.detailed {
+            health_status.checks.into_iter().map(|c| HealthCheckInfo {
+                name: c.name,
+                status: c.status,
+                message: c.message.unwrap_or_default(),
+                duration_ms: c.duration_ms,
+            }).collect()
+        } else {
+            vec![]
+        };
+        
+        Ok(Response::new(GetHealthResponse {
+            success: true,
+            status: health_status.status,
+            version: health_status.version,
+            uptime_seconds: health_status.uptime_seconds,
+            checks,
+        }))
+    }
+    
+    async fn flush(
+        &self,
+        request: Request<FlushRequest>,
+    ) -> Result<Response<FlushResponse>, Status> {
+        let req = request.into_inner();
+        
+        tracing::info!(target: "graphyne::grpc::admin", "Flush request, sync={}", req.sync);
+        
+        let mut admin = self.admin_service.lock().unwrap();
+        match admin.flush() {
+            Ok(_) => Ok(Response::new(FlushResponse {
+                success: true,
+                message: "Flush completed successfully".to_string(),
+            })),
+            Err(e) => {
+                tracing::error!(target: "graphyne::grpc::admin", error = %e, "Flush failed");
+                Ok(Response::new(FlushResponse {
+                    success: false,
+                    message: format!("Flush failed: {}", e),
+                }))
+            }
+        }
+    }
+    
+    async fn backup(
+        &self,
+        request: Request<BackupRequest>,
+    ) -> Result<Response<BackupResponse>, Status> {
+        let req = request.into_inner();
+        
+        tracing::info!(target: "graphyne::grpc::admin", path = %req.path, "Backup request");
+        
+        let admin = self.admin_service.lock().unwrap();
+        match admin.backup(&req.path) {
+            Ok(resp) => Ok(Response::new(BackupResponse {
+                success: resp.success,
+                message: resp.message,
+                backup_path: resp.backup_path,
+                size_bytes: resp.size_bytes,
+            })),
+            Err(e) => {
+                tracing::error!(target: "graphyne::grpc::admin", error = %e, "Backup failed");
+                Ok(Response::new(BackupResponse {
+                    success: false,
+                    message: format!("Backup failed: {}", e),
+                    backup_path: None,
+                    size_bytes: 0,
+                }))
+            }
+        }
+    }
+    
+    async fn restore(
+        &self,
+        request: Request<RestoreRequest>,
+    ) -> Result<Response<RestoreResponse>, Status> {
+        let req = request.into_inner();
+        
+        tracing::info!(target: "graphyne::grpc::admin", path = %req.path, "Restore request");
+        
+        let mut admin = self.admin_service.lock().unwrap();
+        match admin.restore(&req.path) {
+            Ok(resp) => Ok(Response::new(RestoreResponse {
+                success: resp.success,
+                message: resp.message,
+                items_restored: resp.items_restored,
+            })),
+            Err(e) => {
+                tracing::error!(target: "graphyne::grpc::admin", error = %e, "Restore failed");
+                Ok(Response::new(RestoreResponse {
+                    success: false,
+                    message: format!("Restore failed: {}", e),
+                    items_restored: 0,
+                }))
+            }
+        }
+    }
+    
+    async fn compact(
+        &self,
+        request: Request<CompactRequest>,
+    ) -> Result<Response<CompactResponse>, Status> {
+        let req = request.into_inner();
+        
+        tracing::info!(target: "graphyne::grpc::admin", force = %req.force, "Compact request");
+        
+        let mut admin = self.admin_service.lock().unwrap();
+        match admin.compact() {
+            Ok(_) => Ok(Response::new(CompactResponse {
+                success: true,
+                message: "Compact completed successfully".to_string(),
+            })),
+            Err(e) => {
+                tracing::error!(target: "graphyne::grpc::admin", error = %e, "Compact failed");
+                Ok(Response::new(CompactResponse {
+                    success: false,
+                    message: format!("Compact failed: {}", e),
+                }))
+            }
+        }
+    }
+    
+    async fn get_metrics(
+        &self,
+        _request: Request<GetMetricsRequest>,
+    ) -> Result<Response<GetMetricsResponse>, Status> {
+        tracing::info!(target: "graphyne::grpc::admin", "GetMetrics request");
+        
+        match self.metrics.export() {
+            Ok(metrics) => Ok(Response::new(GetMetricsResponse {
+                success: true,
+                message: "Metrics retrieved successfully".to_string(),
+                metrics,
+            })),
+            Err(e) => {
+                tracing::error!(target: "graphyne::grpc::admin", error = %e, "Failed to export metrics");
+                Ok(Response::new(GetMetricsResponse {
+                    success: false,
+                    message: format!("Failed to export metrics: {}", e),
+                    metrics: String::new(),
+                }))
+            }
+        }
+    }
+}
