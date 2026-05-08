@@ -1,0 +1,30 @@
+# Rust build output
+target/
+
+# Backup files
+**/*.rs.bk
+
+# Dependencies lock file (optional - uncomment if you want to ignore)
+# Cargo.lock
+
+# macOS
+.DS_Store
+**/.DS_Store
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# RustRover
+.idea/
+
+# Logs
+*.log
+
+# Environment files
+.env
+.env.local
+.env.*.local
