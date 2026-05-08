@@ -3,6 +3,11 @@ name = "graphyne-core"
 version = "0.1.0"
 edition = "2021"
 
+[features]
+default = []
+embeddings = ["candle-core", "candle-nn"]
+plugins = []
+
 [dependencies]
 thiserror = "1.0"
 serde = { version = "1.0", features = ["derive"] }
@@ -19,3 +24,7 @@ uuid = { version = "1.0", features = ["v4"] }
 prometheus = "0.13"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
+
+# Optional: candle for embeddings
+candle-core = { version = "0.3", optional = true }
+candle-nn = { version = "0.3", optional = true }

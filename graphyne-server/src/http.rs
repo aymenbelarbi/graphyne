@@ -11,6 +11,7 @@ use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::sync::Arc;
 use tower_http::trace::TraceLayer;
+use tower_http::services::ServeDir;
 use tracing::info;
 
 // Import graphyne-core types
@@ -244,6 +245,9 @@ pub fn create_router(state: AppState) -> Router {
         .route("/v1/graph/rag/query", post(graphrag_query_handler))
         .route("/v1/graph/subgraph", post(subgraph_handler))
         .route("/v1/graph/expand/:node_id", post(expand_node_handler))
+        
+        // Serve static files from graphyne-web directory
+        .nest_service("/", ServeDir::new("graphyne-web"))
         
         // Add tracing layer
         .layer(TraceLayer::new_for_http())

@@ -730,6 +730,210 @@ cargo run --package graphyne-cli -- admin restore --path /path/to/backup
 cargo run --package graphyne-cli -- admin compact
 ```
 
+
+### Phase 7 (Complete) ✅ - Optional Extensions
+
+Phase 7 implements optional extensions that enhance Graphyne's capabilities with feature-gated components.
+
+#### Embedded Embedding Models
+- ✅ Feature-gated embedding generation with `#[cfg(feature = "embeddings")]`
+- ✅ Fallback hash-based embeddings when `candle` is not enabled
+- ✅ Support for local inference using `candle` or `burn` (when feature enabled)
+- ✅ Simple bag-of-characters embedding as fallback method
+- ✅ Batch embedding generation support
+
+**Usage:**
+```rust
+use graphyne_core::embeddings::EmbeddingGenerator;
+
+// Create with default fallback method
+let generator = EmbeddingGenerator::new(None)?;
+
+// Generate embedding
+let embedding = generator.generate("hello world")?;
+
+// Batch generation
+let texts = vec!["hello", "world"];
+let embeddings = generator.generate_batch(&texts)?;
+```
+
+**Enable candle embeddings:**
+```toml
+[dependencies]
+graphyne-core = { version = "0.1", features = ["embeddings"] }
+```
+
+#### Plugin System (Basic)
+- ✅ `GraphynePlugin` trait definition with lifecycle hooks
+- ✅ `PluginManager` for dynamic library loading (dlopen)
+- ✅ Plugin lifecycle management (load, unload, register)
+- ✅ Pre/post search hooks for extending functionality
+- ✅ Support for statically linked plugins via `register_plugin()`
+
+**Plugin Trait:**
+```rust
+pub trait GraphynePlugin: Send + Sync {
+    fn name(&self) -> &str;
+    fn version(&self) -> &str;
+    fn on_load(&mut self) -> Result<()>;
+    fn on_unload(&mut self) -> Result<()>;
+    fn pre_search(&self, query: &str) -> Result<()>;
+    fn post_search(&self, results: &mut Vec<(String, f32)>) -> Result<()>;
+}
+```
+
+**Usage:**
+```rust
+use graphyne_core::plugins::{PluginManager, GraphynePlugin};
+
+let mut manager = PluginManager::new(PathBuf::from("./plugins"));
+
+// Register a static plugin
+manager.register_plugin(Box::new(MyPlugin::new()))?;
+
+// Load dynamic plugin from file
+manager.load_plugin("my_plugin")?;
+
+// Use hooks
+manager.pre_search_all("query")?;
+```
+
+#### Basic Web UI (Optional)
+- ✅ Simple single-page web interface at `graphyne-web/index.html`
+- ✅ Search interface with mode selection (hybrid, lexical, vector, graph)
+- ✅ Memory browser for storing and viewing memories
+- ✅ System statistics dashboard
+- ✅ Served automatically by the server at `/`
+
+**Access the Web UI:**
+```
+http://localhost:8080/
+```
+
+**Features:**
+- Search with real-time results
+- Store different memory types (working, episodic, semantic, procedural)
+- View system statistics (searches, memories, storage size, uptime)
+- Responsive design with gradient UI
+
+#### Feature Flags
+Graphyne now supports several feature flags for optional components:
+
+| Feature | Crate | Description |
+|---------|-------|-------------|
+| `embeddings` | graphyne-core | Enable candle-based embedding generation |
+| `plugins` | graphyne-core | Enable plugin system support |
+| `web-ui` | graphyne-server | Enable web UI serving (default: enabled) |
+
+**Enable features:**
+```toml
+[dependencies]
+graphyne-core = { version = "0.1", features = ["embeddings", "plugins"] }
+```
+
+
+
+### Phase 7 (Complete) ✅ - Optional Extensions
+
+Phase 7 implements optional extensions that enhance Graphyne's capabilities with feature-gated components.
+
+#### Embedded Embedding Models
+- ✅ Feature-gated embedding generation with `#[cfg(feature = "embeddings")]`
+- ✅ Fallback hash-based embeddings when `candle` is not enabled
+- ✅ Support for local inference using `candle` or `burn` (when feature enabled)
+- ✅ Simple bag-of-characters embedding as fallback method
+- ✅ Batch embedding generation support
+
+**Usage:**
+```rust
+use graphyne_core::embeddings::EmbeddingGenerator;
+
+// Create with default fallback method
+let generator = EmbeddingGenerator::new(None)?;
+
+// Generate embedding
+let embedding = generator.generate("hello world")?;
+
+// Batch generation
+let texts = vec!["hello", "world"];
+let embeddings = generator.generate_batch(&texts)?;
+```
+
+**Enable candle embeddings:**
+```toml
+[dependencies]
+graphyne-core = { version = "0.1", features = ["embeddings"] }
+```
+
+#### Plugin System (Basic)
+- ✅ `GraphynePlugin` trait definition with lifecycle hooks
+- ✅ `PluginManager` for dynamic library loading (dlopen)
+- ✅ Plugin lifecycle management (load, unload, register)
+- ✅ Pre/post search hooks for extending functionality
+- ✅ Support for statically linked plugins via `register_plugin()`
+
+**Plugin Trait:**
+```rust
+pub trait GraphynePlugin: Send + Sync {
+    fn name(&self) -> &str;
+    fn version(&self) -> &str;
+    fn on_load(&mut self) -> Result<()>;
+    fn on_unload(&mut self) -> Result<()>;
+    fn pre_search(&self, query: &str) -> Result<()>;
+    fn post_search(&self, results: &mut Vec<(String, f32)>) -> Result<()>;
+}
+```
+
+**Usage:**
+```rust
+use graphyne_core::plugins::{PluginManager, GraphynePlugin};
+
+let mut manager = PluginManager::new(PathBuf::from("./plugins"));
+
+// Register a static plugin
+manager.register_plugin(Box::new(MyPlugin::new()))?;
+
+// Load dynamic plugin from file
+manager.load_plugin("my_plugin")?;
+
+// Use hooks
+manager.pre_search_all("query")?;
+```
+
+#### Basic Web UI (Optional)
+- ✅ Simple single-page web interface at `graphyne-web/index.html`
+- ✅ Search interface with mode selection (hybrid, lexical, vector, graph)
+- ✅ Memory browser for storing and viewing memories
+- ✅ System statistics dashboard
+- ✅ Served automatically by the server at `/`
+
+**Access the Web UI:**
+```
+http://localhost:8080/
+```
+
+**Features:**
+- Search with real-time results
+- Store different memory types (working, episodic, semantic, procedural)
+- View system statistics (searches, memories, storage size, uptime)
+- Responsive design with gradient UI
+
+#### Feature Flags
+Graphyne now supports several feature flags for optional components:
+
+| Feature | Crate | Description |
+|---------|-------|-------------|
+| `embeddings` | graphyne-core | Enable candle-based embedding generation |
+| `plugins` | graphyne-core | Enable plugin system support |
+| `web-ui` | graphyne-server | Enable web UI serving (default: enabled) |
+
+**Enable features:**
+```toml
+[dependencies]
+graphyne-core = { version = "0.1", features = ["embeddings", "plugins"] }
+```
+
+
 ## License
 
 Apache License 2.0
@@ -741,3 +945,5 @@ Apache License 2.0
 ✅ **Phase 3 Complete** - API Layer (gRPC, HTTP/JSON, CLI, Client SDK)  
 ✅ **Phase 4 Complete** - Agent & Memory Features (memory types, retention, scoring, context packing)  
 ✅ **Phase 5 Complete** - Knowledge Graph & GraphRAG (enhanced graph model, GraphRAG engine, advanced traversal, graph-memory integration)
+✅ **Phase 6 Complete** - Control & Observability (metrics, logging, health checks, admin operations)
+✅ **Phase 7 Complete** - Optional Extensions (embedded embeddings, plugin system, web UI)
