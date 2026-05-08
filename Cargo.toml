@@ -1,0 +1,12 @@
+[workspace]
+members = [
+    "graphyne-core",
+    "graphyne-server",
+    "graphyne-client",
+    "graphyne-cli",
+    "graphyne-proto",
+    "graphyne-mcp",
+]
+
+[workspace.dependencies]
+# Core dependencies will be added as crates are created
