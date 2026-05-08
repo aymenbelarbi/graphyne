@@ -235,7 +235,10 @@ impl graph_service_server::GraphService for GraphServiceImpl {
             GraphNode {
                 id: req.start_node_id,
                 node_type: "sample".to_string(),
+                label: "Sample Node".to_string(),
                 properties: std::collections::HashMap::new(),
+                embedding: vec![],
+                created_at: chrono::Utc::now().to_rfc3339(),
             }
         ];
         
@@ -288,6 +291,97 @@ impl memory_service_server::MemoryService for MemoryServiceImpl {
             key: req.key,
             value: "Sample memory value".to_string(),
             metadata: std::collections::HashMap::new(),
+        }))
+    }
+}
+
+/// GraphRAG service implementation for enhanced agent reasoning
+pub struct GraphRAGServiceImpl {
+    // graph_rag: Arc<graphyne_core::graph::rag::GraphRAG>, // Will be used when core is fully implemented
+}
+
+impl GraphRAGServiceImpl {
+    pub fn new() -> Self {
+        Self {}
+    }
+}
+
+#[tonic::async_trait]
+impl graph_rag_service_server::GraphRAGService for GraphRAGServiceImpl {
+    async fn query(
+        &self,
+        request: Request<GraphRAGQueryRequest>,
+    ) -> Result<Response<GraphRAGQueryResponse>, Status> {
+        let req = request.into_inner();
+        
+        tracing::info!("GraphRAG query: query={}, max_hops={}, limit={}", 
+            req.query, req.max_hops, req.limit);
+        
+        // TODO: Implement actual GraphRAG query using graphyne-core
+        
+        // Placeholder response with sample context
+        let context = format!(
+            "# Knowledge Graph Context for Query: \"{}\"\n\n## Summary\nThis subgraph contains 1 nodes and 0 edges.\n\n## Nodes\n\n### Sample (1)\n- **Sample Node** (node_1)\n  Properties:\n  - type: sample\n\n## Relationships\n\nNo relationships found.",
+            req.query
+        );
+        
+        let nodes = vec![
+            GraphNode {
+                id: "node_1".to_string(),
+                node_type: "sample".to_string(),
+                label: "Sample Node".to_string(),
+                properties: std::collections::HashMap::new(),
+                embedding: vec![],
+                created_at: chrono::Utc::now().to_rfc3339(),
+            }
+        ];
+        
+        let edges = vec![];
+        
+        Ok(Response::new(GraphRAGQueryResponse {
+            context,
+            nodes,
+            edges,
+            confidence: 0.5,
+            explanation: "Placeholder GraphRAG implementation".to_string(),
+        }))
+    }
+    
+    async fn get_subgraph(
+        &self,
+        request: Request<SubgraphRequest>,
+    ) -> Result<Response<SubgraphResponse>, Status> {
+        let req = request.into_inner();
+        
+        tracing::info!("Get subgraph: node_ids={:?}, max_hops={}", 
+            req.node_ids, req.max_hops);
+        
+        // TODO: Implement actual subgraph retrieval
+        
+        Ok(Response::new(SubgraphResponse {
+            success: true,
+            message: "Subgraph retrieved successfully".to_string(),
+            nodes: vec![],
+            edges: vec![],
+        }))
+    }
+    
+    async fn expand_node(
+        &self,
+        request: Request<ExpandNodeRequest>,
+    ) -> Result<Response<ExpandNodeResponse>, Status> {
+        let req = request.into_inner();
+        
+        tracing::info!("Expand node: node_id={}, depth={}", 
+            req.node_id, req.depth);
+        
+        // TODO: Implement actual node expansion
+        
+        Ok(Response::new(ExpandNodeResponse {
+            success: true,
+            message: "Node expanded successfully".to_string(),
+            nodes: vec![],
+            edges: vec![],
         }))
     }
 }

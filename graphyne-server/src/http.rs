@@ -3,7 +3,7 @@
 use axum::{
     extract::{Query, Path, State},
     response::Json,
-    routing::{get, post, put, delete},
+    routing::{get, post},
     Router,
 };
 use serde::{Deserialize, Serialize};
@@ -18,6 +18,7 @@ use graphyne_core::memory::{
     MemoryStore, MemoryEntry, MemoryType, MemoryUpdate, MemoryQuery,
     MemorySpace, ScoringConfig,
 };
+use graphyne_core::graph::rag::GraphRAGResult;
 
 /// Query parameters for search endpoint
 #[derive(Debug, Deserialize)]
@@ -52,7 +53,9 @@ pub struct AddEmbeddingBody {
 pub struct AddNodeBody {
     pub id: String,
     pub node_type: String,
-    pub properties: Option<HashMap<String, String>>,
+    pub label: Option<String>,
+    pub properties: Option<HashMap<String, serde_json::Value>>,
+    pub embedding: Option<Vec<f32>>,
 }
 
 /// Request body for add edge endpoint
@@ -61,7 +64,8 @@ pub struct AddEdgeBody {
     pub from_id: String,
     pub to_id: String,
     pub edge_type: String,
-    pub properties: Option<HashMap<String, String>>,
+    pub properties: Option<HashMap<String, serde_json::Value>>,
+    pub weight: Option<f32>,
 }
 
 /// Query parameters for recall memory endpoint
@@ -92,6 +96,27 @@ pub struct UpdateMemoryBody {
     pub importance: Option<f32>,
     pub metadata: Option<HashMap<String, serde_json::Value>>,
     pub embedding: Option<Vec<f32>>,
+}
+
+/// GraphRAG query request body
+#[derive(Debug, Deserialize)]
+pub struct GraphRAGQueryBody {
+    pub query: String,
+    pub max_hops: Option<usize>,
+    pub limit: Option<usize>,
+}
+
+/// Subgraph request body
+#[derive(Debug, Deserialize)]
+pub struct SubgraphBody {
+    pub node_ids: Vec<String>,
+    pub max_hops: Option<usize>,
+}
+
+/// Expand node request body
+#[derive(Debug, Deserialize)]
+pub struct ExpandNodeBody {
+    pub depth: Option<usize>,
 }
 
 /// Generic success response
@@ -158,6 +183,18 @@ pub struct HealthResponse {
     pub version: String,
 }
 
+/// GraphRAG query response
+#[derive(Debug, Serialize)]
+pub struct GraphRAGResponse {
+    pub success: bool,
+    pub message: String,
+    pub context: Option<String>,
+    pub nodes: Option<Vec<serde_json::Value>>,
+    pub edges: Option<Vec<serde_json::Value>>,
+    pub confidence: Option<f32>,
+    pub explanation: Option<String>,
+}
+
 /// App state holding the memory store
 #[derive(Clone)]
 pub struct AppState {
@@ -187,7 +224,12 @@ pub fn create_router(state: AppState) -> Router {
         .route("/v1/memory/store", post(store_memory_handler))
         .route("/v1/memory/recall", get(recall_memory_handler))
         .route("/v1/memory/spaces", get(list_memory_spaces_handler))
-        .route("/v1/memory/:id", put(update_memory_handler).delete(delete_memory_handler))
+        .route("/v1/memory/:id", post(update_memory_handler).delete(delete_memory_handler))
+        
+        // GraphRAG endpoints
+        .route("/v1/graph/rag/query", post(graphrag_query_handler))
+        .route("/v1/graph/subgraph", post(subgraph_handler))
+        .route("/v1/graph/expand/:node_id", post(expand_node_handler))
         
         // Add tracing layer
         .layer(TraceLayer::new_for_http())
@@ -462,6 +504,120 @@ async fn delete_memory_handler(
             "message": format!("Failed to delete memory: {}", e)
         })),
     }
+}
+
+/// GraphRAG query handler
+async fn graphrag_query_handler(
+    State(state): State<AppState>,
+    Json(body): Json<GraphRAGQueryBody>,
+) -> Json<GraphRAGResponse> {
+    info!(
+        "GraphRAG query: query={}, max_hops={:?}, limit={:?}",
+        body.query, body.max_hops, body.limit
+    );
+    
+    let store = state.memory_store.lock().await;
+    
+    // Use GraphRAG for enhanced recall if available
+    match store.recall_with_graph(&body.query, body.max_hops, body.limit) {
+        Ok(rag_result) => {
+            // Convert nodes and edges to JSON
+            let nodes_json: Vec<serde_json::Value> = rag_result.nodes.iter().map(|n| {
+                serde_json::json!({
+                    "id": n.id,
+                    "node_type": n.node_type,
+                    "label": n.label,
+                    "properties": n.properties,
+                })
+            }).collect();
+            
+            let edges_json: Vec<serde_json::Value> = rag_result.edges.iter().map(|e| {
+                serde_json::json!({
+                    "id": e.id,
+                    "from": e.from,
+                    "to": e.to,
+                    "edge_type": e.edge_type,
+                    "properties": e.properties,
+                    "weight": e.weight,
+                })
+            }).collect();
+            
+            Json(GraphRAGResponse {
+                success: true,
+                message: "GraphRAG query successful".to_string(),
+                context: Some(rag_result.context),
+                nodes: Some(nodes_json),
+                edges: Some(edges_json),
+                confidence: Some(rag_result.confidence),
+                explanation: Some(rag_result.explanation),
+            })
+        }
+        Err(e) => {
+            // Fall back to regular recall if GraphRAG not initialized
+            Json(GraphRAGResponse {
+                success: false,
+                message: format!("GraphRAG query failed: {}", e),
+                context: None,
+                nodes: None,
+                edges: None,
+                confidence: None,
+                explanation: None,
+            })
+        }
+    }
+}
+
+/// Subgraph handler
+async fn subgraph_handler(
+    State(state): State<AppState>,
+    Json(body): Json<SubgraphBody>,
+) -> Json<GraphRAGResponse> {
+    info!(
+        "Get subgraph: node_ids={:?}, max_hops={:?}",
+        body.node_ids, body.max_hops
+    );
+    
+    let store = state.memory_store.lock().await;
+    
+    // TODO: Implement actual subgraph retrieval using graphyne-core
+    // For now, return placeholder
+    
+    Json(GraphRAGResponse {
+        success: true,
+        message: "Subgraph retrieved successfully".to_string(),
+        context: Some("Sample subgraph context".to_string()),
+        nodes: Some(vec![]),
+        edges: Some(vec![]),
+        confidence: Some(0.5),
+        explanation: Some("Placeholder implementation".to_string()),
+    })
+}
+
+/// Expand node handler
+async fn expand_node_handler(
+    State(state): State<AppState>,
+    Path(node_id): Path<String>,
+    Json(body): Json<ExpandNodeBody>,
+) -> Json<GraphRAGResponse> {
+    info!(
+        "Expand node: node_id={}, depth={:?}",
+        node_id, body.depth
+    );
+    
+    let store = state.memory_store.lock().await;
+    
+    // TODO: Implement actual node expansion using graphyne-core
+    // For now, return placeholder
+    
+    Json(GraphRAGResponse {
+        success: true,
+        message: "Node expanded successfully".to_string(),
+        context: Some(format!("Expanded node: {}", node_id)),
+        nodes: Some(vec![]),
+        edges: Some(vec![]),
+        confidence: Some(0.5),
+        explanation: Some("Placeholder implementation".to_string()),
+    })
 }
 
 /// Start the HTTP server

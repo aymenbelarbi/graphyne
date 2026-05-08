@@ -1,7 +1,7 @@
 //! Graphyne CLI - Command line interface for Graphyne services
 //! 
 //! Provides commands for search, document management, vector operations,
-//! graph operations, and memory management.
+//! graph operations, memory management, and GraphRAG queries.
 
 use clap::{Parser, Subcommand};
 use graphyne_client::{ClientConfig, GraphyneGrpcClient, GraphyneHttpClient, Result};
@@ -91,6 +91,12 @@ enum Commands {
         #[command(subcommand)]
         command: MemoryCommands,
     },
+    
+    /// GraphRAG operations for enhanced reasoning
+    Rag {
+        #[command(subcommand)]
+        command: RagCommands,
+    },
 }
 
 #[derive(Subcommand)]
@@ -123,6 +129,10 @@ enum GraphCommands {
         #[arg(short, long)]
         node_type: String,
         
+        /// Node label (optional)
+        #[arg(long)]
+        label: Option<String>,
+        
         /// Properties as JSON object
         #[arg(short, long)]
         properties: Option<String>,
@@ -145,6 +155,39 @@ enum GraphCommands {
         /// Properties as JSON object
         #[arg(short, long)]
         properties: Option<String>,
+        
+        /// Edge weight (default: 1.0)
+        #[arg(long, default_value = "1.0")]
+        weight: f32,
+    },
+    
+    /// Find shortest path between two nodes
+    ShortestPath {
+        /// Source node ID
+        #[arg(long)]
+        from: String,
+        
+        /// Target node ID
+        #[arg(long)]
+        to: String,
+    },
+    
+    /// Get node centrality score
+    Centrality {
+        /// Node ID
+        #[arg(long)]
+        node_id: String,
+    },
+    
+    /// Get node recommendations
+    Recommend {
+        /// Starting node ID
+        #[arg(long)]
+        start: String,
+        
+        /// Maximum number of recommendations
+        #[arg(long, default_value = "10")]
+        limit: usize,
     },
 }
 
@@ -226,6 +269,46 @@ enum MemoryCommands {
     },
 }
 
+#[derive(Subcommand)]
+enum RagCommands {
+    /// Query the knowledge graph using GraphRAG
+    Query {
+        /// Query string
+        #[arg(short, long)]
+        query: String,
+        
+        /// Maximum number of hops to traverse
+        #[arg(long, default_value = "2")]
+        hops: usize,
+        
+        /// Maximum number of results
+        #[arg(short, long, default_value = "10")]
+        limit: usize,
+    },
+    
+    /// Get a subgraph around specific nodes
+    Subgraph {
+        /// Node IDs (comma-separated)
+        #[arg(long)]
+        node_ids: String,
+        
+        /// Maximum number of hops from the nodes
+        #[arg(long, default_value = "2")]
+        hops: usize,
+    },
+    
+    /// Expand a node with its neighbors
+    Expand {
+        /// Node ID to expand
+        #[arg(long)]
+        node_id: String,
+        
+        /// Depth of expansion (1 = direct neighbors)
+        #[arg(long, default_value = "1")]
+        depth: usize,
+    },
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
     // Initialize tracing
@@ -278,6 +361,14 @@ async fn main() -> Result<()> {
                 memory_http(&config, command).await?;
             } else {
                 memory_grpc(&config, command).await?;
+            }
+        }
+        
+        Commands::Rag { command } => {
+            if cli.http {
+                rag_http(&config, command).await?;
+            } else {
+                rag_grpc(&config, command).await?;
             }
         }
     }
@@ -440,12 +531,12 @@ async fn graph_grpc(config: &ClientConfig, command: GraphCommands) -> Result<()>
     let mut client = GraphyneGrpcClient::connect(config.clone()).await?;
     
     match command {
-        GraphCommands::AddNode { id, node_type, properties } => {
+        GraphCommands::AddNode { id, node_type, label, properties } => {
             let properties = properties
                 .map(|p| serde_json::from_str(&p).unwrap_or_default())
                 .unwrap_or_default();
             
-            let success = client.add_node(&id, &node_type, properties).await?;
+            let success = client.add_node(&id, &node_type, label.as_deref(), properties).await?;
             
             if success {
                 println!("Node added successfully");
@@ -454,18 +545,36 @@ async fn graph_grpc(config: &ClientConfig, command: GraphCommands) -> Result<()>
             }
         }
         
-        GraphCommands::AddEdge { from, to, edge_type, properties } => {
+        GraphCommands::AddEdge { from, to, edge_type, properties, weight } => {
             let properties = properties
                 .map(|p| serde_json::from_str(&p).unwrap_or_default())
                 .unwrap_or_default();
             
-            let success = client.add_edge(&from, &to, &edge_type, properties).await?;
+            let success = client.add_edge(&from, &to, &edge_type, properties, weight).await?;
             
             if success {
                 println!("Edge added successfully");
             } else {
                 println!("Failed to add edge");
             }
+        }
+        
+        GraphCommands::ShortestPath { from, to } => {
+            println!("Finding shortest path from {} to {}...", from, to);
+            // TODO: Implement shortest path via gRPC
+            println!("Shortest path functionality not yet implemented via gRPC");
+        }
+        
+        GraphCommands::Centrality { node_id } => {
+            println!("Calculating centrality for node {}...", node_id);
+            // TODO: Implement centrality via gRPC
+            println!("Centrality functionality not yet implemented via gRPC");
+        }
+        
+        GraphCommands::Recommend { start, limit } => {
+            println!("Getting recommendations for node {} (limit: {})...", start, limit);
+            // TODO: Implement recommendations via gRPC
+            println!("Recommendation functionality not yet implemented via gRPC");
         }
     }
     
@@ -477,12 +586,12 @@ async fn graph_http(config: &ClientConfig, command: GraphCommands) -> Result<()>
     let client = GraphyneHttpClient::new(config.clone());
     
     match command {
-        GraphCommands::AddNode { id, node_type, properties } => {
+        GraphCommands::AddNode { id, node_type, label, properties } => {
             let properties = properties
                 .map(|p| serde_json::from_str(&p).unwrap_or_default())
                 .unwrap_or_default();
             
-            let response = client.add_node(&id, &node_type, properties).await?;
+            let response = client.add_node(&id, &node_type, label.as_deref(), properties).await?;
             
             if response.success {
                 println!("Node added successfully: {}", response.message);
@@ -491,9 +600,27 @@ async fn graph_http(config: &ClientConfig, command: GraphCommands) -> Result<()>
             }
         }
         
-        GraphCommands::AddEdge { from, to, edge_type, properties } => {
+        GraphCommands::AddEdge { from, to, edge_type, properties, weight } => {
             // TODO: Implement add_edge for HTTP client
             println!("Add edge via HTTP not yet implemented");
+        }
+        
+        GraphCommands::ShortestPath { from, to } => {
+            println!("Finding shortest path from {} to {}...", from, to);
+            // TODO: Implement shortest path via HTTP
+            println!("Shortest path functionality not yet implemented via HTTP");
+        }
+        
+        GraphCommands::Centrality { node_id } => {
+            println!("Calculating centrality for node {}...", node_id);
+            // TODO: Implement centrality via HTTP
+            println!("Centrality functionality not yet implemented via HTTP");
+        }
+        
+        GraphCommands::Recommend { start, limit } => {
+            println!("Getting recommendations for node {} (limit: {})...", start, limit);
+            // TODO: Implement recommendations via HTTP
+            println!("Recommendation functionality not yet implemented via HTTP");
         }
     }
     
@@ -589,6 +716,68 @@ async fn memory_http(config: &ClientConfig, command: MemoryCommands) -> Result<(
             // TODO: Implement delete_memory in HTTP client
             println!("Deleting memory via HTTP...");
             println!("ID: {}", id);
+        }
+    }
+    
+    Ok(())
+}
+
+/// GraphRAG operations using gRPC
+async fn rag_grpc(config: &ClientConfig, command: RagCommands) -> Result<()> {
+    let mut client = GraphyneGrpcClient::connect(config.clone()).await?;
+    
+    match command {
+        RagCommands::Query { query, hops, limit } => {
+            println!("GraphRAG query: \"{}\" (hops: {}, limit: {})", query, hops, limit);
+            // TODO: Implement GraphRAG query via gRPC
+            println!("GraphRAG query via gRPC not yet implemented");
+        }
+        
+        RagCommands::Subgraph { node_ids, hops } => {
+            let ids: Vec<&str> = node_ids.split(',').map(|s| s.trim()).collect();
+            println!("Getting subgraph for nodes: {:?} (hops: {})", ids, hops);
+            // TODO: Implement subgraph via gRPC
+            println!("Subgraph via gRPC not yet implemented");
+        }
+        
+        RagCommands::Expand { node_id, depth } => {
+            println!("Expanding node: {} (depth: {})", node_id, depth);
+            // TODO: Implement expand node via gRPC
+            println!("Expand node via gRPC not yet implemented");
+        }
+    }
+    
+    Ok(())
+}
+
+/// GraphRAG operations using HTTP
+async fn rag_http(config: &ClientConfig, command: RagCommands) -> Result<()> {
+    let client = GraphyneHttpClient::new(config.clone());
+    
+    match command {
+        RagCommands::Query { query, hops, limit } => {
+            println!("GraphRAG query: \"{}\" (hops: {}, limit: {})", query, hops, limit);
+            // TODO: Implement GraphRAG query via HTTP
+            // This would call the /v1/graph/rag/query endpoint
+            println!("GraphRAG query via HTTP not yet implemented");
+            println!("Would call: POST /v1/graph/rag/query with query=\"{}\", max_hops={}, limit={}", query, hops, limit);
+        }
+        
+        RagCommands::Subgraph { node_ids, hops } => {
+            let ids: Vec<&str> = node_ids.split(',').map(|s| s.trim()).collect();
+            println!("Getting subgraph for nodes: {:?} (hops: {})", ids, hops);
+            // TODO: Implement subgraph via HTTP
+            // This would call the /v1/graph/subgraph endpoint
+            println!("Subgraph via HTTP not yet implemented");
+            println!("Would call: POST /v1/graph/subgraph with node_ids={:?}, max_hops={}", ids, hops);
+        }
+        
+        RagCommands::Expand { node_id, depth } => {
+            println!("Expanding node: {} (depth: {})", node_id, depth);
+            // TODO: Implement expand node via HTTP
+            // This would call the /v1/graph/expand/{node_id} endpoint
+            println!("Expand node via HTTP not yet implemented");
+            println!("Would call: POST /v1/graph/expand/{} with depth={}", node_id, depth);
         }
     }
     

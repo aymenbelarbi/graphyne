@@ -32,6 +32,13 @@ service MemoryService {
   rpc DeleteMemory(DeleteMemoryRequest) returns (DeleteMemoryResponse);
 }
 
+// GraphRAG Service for enhanced agent reasoning
+service GraphRAGService {
+  rpc Query(GraphRAGQueryRequest) returns (GraphRAGQueryResponse);
+  rpc GetSubgraph(SubgraphRequest) returns (SubgraphResponse);
+  rpc ExpandNode(ExpandNodeRequest) returns (ExpandNodeResponse);
+}
+
 message SearchRequest {
   string collection = 1;
   string bucket = 2;
@@ -121,7 +128,9 @@ message SearchVectorResponse {
 message AddNodeRequest {
   string id = 1;
   string node_type = 2;
-  map<string, string> properties = 3;
+  string label = 3;
+  map<string, string> properties = 4;
+  repeated float embedding = 5;
 }
 
 message AddNodeResponse {
@@ -134,11 +143,13 @@ message AddEdgeRequest {
   string to_id = 2;
   string edge_type = 3;
   map<string, string> properties = 4;
+  float weight = 5;
 }
 
 message AddEdgeResponse {
   bool success = 1;
   string message = 2;
+  string edge_id = 3;
 }
 
 message TraverseGraphRequest {
@@ -152,17 +163,31 @@ message TraverseGraphResponse {
   repeated GraphEdge edges = 2;
 }
 
+// Updated GraphNode with enhanced fields
 message GraphNode {
   string id = 1;
   string node_type = 2;
-  map<string, string> properties = 3;
+  string label = 3;
+  map<string, string> properties = 4;
+  repeated float embedding = 5;
+  string created_at = 6;
 }
 
+// Updated GraphEdge with enhanced fields
 message GraphEdge {
-  string from_id = 1;
-  string to_id = 2;
-  string edge_type = 3;
-  map<string, string> properties = 4;
+  string id = 1;
+  string from_id = 2;
+  string to_id = 3;
+  string edge_type = 4;
+  map<string, string> properties = 5;
+  float weight = 6;
+}
+
+// GraphPath message for traversal results
+message GraphPath {
+  repeated GraphNode nodes = 1;
+  repeated GraphEdge edges = 2;
+  float total_weight = 3;
 }
 
 // Memory Service Messages
@@ -258,4 +283,44 @@ message DeleteMemoryRequest {
 message DeleteMemoryResponse {
   bool success = 1;
   string message = 2;
+}
+
+// GraphRAG Messages
+
+message GraphRAGQueryRequest {
+  string query = 1;
+  int32 max_hops = 2;
+  int32 limit = 3;
+}
+
+message GraphRAGQueryResponse {
+  string context = 1;
+  repeated GraphNode nodes = 2;
+  repeated GraphEdge edges = 3;
+  float confidence = 4;
+  string explanation = 5;
+}
+
+message SubgraphRequest {
+  repeated string node_ids = 1;
+  int32 max_hops = 2;
+}
+
+message SubgraphResponse {
+  bool success = 1;
+  string message = 2;
+  repeated GraphNode nodes = 3;
+  repeated GraphEdge edges = 4;
+}
+
+message ExpandNodeRequest {
+  string node_id = 1;
+  int32 depth = 2;
+}
+
+message ExpandNodeResponse {
+  bool success = 1;
+  string message = 2;
+  repeated GraphNode nodes = 3;
+  repeated GraphEdge edges = 4;
 }

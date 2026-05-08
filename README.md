@@ -8,6 +8,7 @@ Graphyne is designed for hybrid lexical, vector, and graph retrieval with agent-
 
 - **Hybrid Retrieval**: Unifies lexical (BM25), vector (ANN), and graph search
 - **Agent-Native**: Built-in memory spaces (working, episodic, semantic, procedural)
+- **Knowledge Graph**: Advanced graph reasoning with GraphRAG for enhanced LLM context
 - **High Performance**: Single-digit ms p99 latency for common operations
 - **Multiple APIs**: gRPC, HTTP/JSON, and CLI interfaces
 
@@ -36,7 +37,8 @@ graphyne/
 │   │   ├── vector/        # Vector search engine (HNSW, ANN)
 │   │   │   └── mod.rs     # HNSW index for approximate nearest neighbor search
 │   │   ├── graph/         # Graph storage (petgraph, typed edges)
-│   │   │   └── mod.rs     # Typed property graph with multi-hop traversal
+│   │   │   ├── mod.rs     # Typed property graph with multi-hop traversal
+│   │   │   └── rag.rs      # GraphRAG engine for LLM context generation
 │   │   ├── scoring/       # Hybrid scoring system
 │   │   │   └── mod.rs     # Combine lexical, vector, and graph scores
 │   │   └── memory/        # Agent & Memory system (Phase 4)
@@ -50,8 +52,8 @@ graphyne/
 ├── graphyne-server/        # Server binary with gRPC and HTTP APIs
 │   ├── src/
 │   │   ├── main.rs        # Server startup with gRPC and HTTP servers
-│   │   ├── grpc.rs        # gRPC service implementations
-│   │   └── http.rs        # HTTP/JSON REST API with axum
+│   │   ├── grpc.rs        # gRPC service implementations (including GraphRAG)
+│   │   └── http.rs        # HTTP/JSON REST API with axum (including GraphRAG)
 │   └── Cargo.toml
 ├── graphyne-client/        # Client SDK for gRPC and HTTP
 │   ├── src/
@@ -62,11 +64,11 @@ graphyne/
 │   └── Cargo.toml
 ├── graphyne-cli/           # CLI tool with clap
 │   ├── src/
-│   │   └── main.rs        # CLI commands: search, push, vector, graph, memory
+│   │   └── main.rs        # CLI commands: search, push, vector, graph, memory, rag
 │   └── Cargo.toml
 ├── graphyne-proto/         # gRPC/protobuf schemas
 │   ├── proto/
-│   │   └── graphyne.proto # Service definitions (Search, Document, Vector, Graph, Memory)
+│   │   └── graphyne.proto # Service definitions (Search, Document, Vector, Graph, Memory, GraphRAG)
 │   ├── src/
 │   │   └── lib.rs         # Generated code exports
 │   ├── build.rs           # tonic-build configuration
@@ -152,6 +154,88 @@ Isolated memory environments for different agents or contexts:
 - Configurable scoring weights per space
 - Independent memory types per space
 
+## Knowledge Graph & GraphRAG (Phase 5)
+
+Phase 5 introduces advanced Knowledge Graph capabilities and GraphRAG (Graph-based Retrieval-Augmented Generation) for enhanced agent reasoning.
+
+### Enhanced Graph Data Model
+
+The graph data model has been enhanced with rich node and edge types:
+
+```rust
+pub struct GraphNode {
+    pub id: String,
+    pub node_type: String,
+    pub label: String,
+    pub properties: serde_json::Value,
+    pub embedding: Option<Vec<f32>>,
+    pub created_at: chrono::DateTime<chrono::Utc>,
+}
+
+pub struct GraphEdge {
+    pub id: String,
+    pub from: String,
+    pub to: String,
+    pub edge_type: String,
+    pub properties: serde_json::Value,
+    pub weight: f32,
+}
+```
+
+### GraphRAG Engine
+
+The GraphRAG engine combines graph traversal with vector similarity to generate rich context for LLM consumption:
+
+1. **Lexical Search**: Find seed nodes using text search
+2. **Graph Traversal**: Expand via multi-hop traversal from seed nodes
+3. **Relevance Ranking**: Rank nodes by graph centrality + vector similarity
+4. **Context Generation**: Format subgraph as text for LLM
+
+```rust
+pub struct GraphRAG {
+    graph_store: GraphStore,
+    vector_index: VectorIndex,
+    lexical_index: LexicalIndex,
+}
+
+impl GraphRAG {
+    pub fn query(&self, query: &str, max_hops: usize, limit: usize) -> Result<GraphRAGResult> {
+        // Returns context string, nodes, edges, and confidence score
+    }
+}
+```
+
+### Advanced Graph Traversal
+
+New graph traversal algorithms have been added:
+
+- **Shortest Path (Dijkstra)**: Find optimal paths between nodes using weighted edges
+- **Node Centrality**: Calculate degree centrality for node importance
+- **Graph Recommendations**: Recommend nodes based on graph structure and vector similarity
+- **Neighbor Expansion**: Get all neighbors (incoming and outgoing edges)
+
+### Graph-Memory Integration
+
+The memory system is now fully integrated with the knowledge graph:
+
+- **Memory-Graph Linking**: Memory entries are automatically linked to graph nodes
+- **Relationship Tracking**: Store memory relationships in the graph
+- **Graph-Enhanced Recall**: Use GraphRAG for enhanced memory recall
+- **Automatic Node Creation**: Memory entries create corresponding graph nodes
+
+```rust
+impl MemoryStore {
+    pub fn store_memory_with_graph(&mut self, entry: MemoryEntry, 
+        relationships: Vec<(String, String, String)>) -> Result<String> {
+        // Store memory and create graph relationships
+    }
+    
+    pub fn recall_with_graph(&self, query: &str) -> Result<GraphRAGResult> {
+        // Use GraphRAG for enhanced recall
+    }
+}
+```
+
 ## API Layer (Phase 3)
 
 ### gRPC API
@@ -182,6 +266,11 @@ Graphyne provides a gRPC API using tonic with the following services:
 - `GetMemorySpaces(GetMemorySpacesRequest) -> GetMemorySpacesResponse` - List memory spaces
 - `UpdateMemory(UpdateMemoryRequest) -> UpdateMemoryResponse` - Update existing memories
 - `DeleteMemory(DeleteMemoryRequest) -> DeleteMemoryResponse` - Delete memories
+
+#### GraphRAGService (NEW in Phase 5)
+- `Query(GraphRAGQueryRequest) -> GraphRAGQueryResponse` - GraphRAG query for LLM context
+- `GetSubgraph(SubgraphRequest) -> SubgraphResponse` - Get subgraph around nodes
+- `ExpandNode(ExpandNodeRequest) -> ExpandNodeResponse` - Expand node with neighbors
 
 ### HTTP/JSON REST API
 
@@ -226,7 +315,9 @@ Content-Type: application/json
 {
   "id": "node1",
   "node_type": "Person",
-  "properties": {"name": "John", "age": "30"}
+  "label": "John Doe",
+  "properties": {"name": "John", "age": "30"},
+  "embedding": [0.1, 0.2, ...]
 }
 ```
 
@@ -239,7 +330,8 @@ Content-Type: application/json
   "from_id": "node1",
   "to_id": "node2",
   "edge_type": "KNOWS",
-  "properties": {"since": "2023"}
+  "properties": {"since": "2023"},
+  "weight": 1.0
 }
 ```
 
@@ -252,7 +344,7 @@ Content-Type: application/json
   "memory_type": "Semantic",
   "content": "User prefers dark mode",
   "importance": 0.8,
-  "metadata": {"source": "user_preference"},
+  "metadata": {"source": "user_reference"},
   "space": "default"
 }
 ```
@@ -275,6 +367,52 @@ Content-Type: application/json
 {
   "content": "Updated: User prefers dark mode and high contrast",
   "importance": 0.9
+}
+```
+
+#### GraphRAG Query (NEW in Phase 5)
+```bash
+POST /v1/graph/rag/query
+Content-Type: application/json
+
+{
+  "query": "What does the user prefer?",
+  "max_hops": 2,
+  "limit": 10
+}
+```
+
+Returns:
+```json
+{
+  "success": true,
+  "message": "GraphRAG query successful",
+  "context": "# Knowledge Graph Context for Query: \"What does the user prefer?\"\n\n## Summary\n...",
+  "nodes": [...],
+  "edges": [...],
+  "confidence": 0.85,
+  "explanation": "Found 3 seed nodes from lexical search..."
+}
+```
+
+#### Get Subgraph (NEW in Phase 5)
+```bash
+POST /v1/graph/subgraph
+Content-Type: application/json
+
+{
+  "node_ids": ["node1", "node2"],
+  "max_hops": 2
+}
+```
+
+#### Expand Node (NEW in Phase 5)
+```bash
+POST /v1/graph/expand/{node_id}
+Content-Type: application/json
+
+{
+  "depth": 1
 }
 ```
 
@@ -308,10 +446,19 @@ graphyne-cli vector add --id "vec1" --values "[0.1, 0.2, 0.3, 0.4, 0.5]"
 #### Graph Operations
 ```bash
 # Add node
-graphyne-cli graph add-node --id "node1" --type "Person" --properties '{"name": "John"}'
+graphyne-cli graph add-node --id "node1" --type "Person" --label "John Doe" --properties '{"name": "John"}'
 
 # Add edge
-graphyne-cli graph add-edge --from "node1" --to "node2" --type "KNOWS" --properties '{"since": "2023"}'
+graphyne-cli graph add-edge --from "node1" --to "node2" --type "KNOWS" --properties '{"since": "2023"}' --weight 1.0
+
+# Shortest path
+graphyne-cli graph shortest-path --from "node1" --to "node2"
+
+# Node centrality
+graphyne-cli graph centrality --node-id "node1"
+
+# Recommendations
+graphyne-cli graph recommend --start "node1" --limit 10
 ```
 
 #### Memory Operations
@@ -330,6 +477,18 @@ graphyne-cli memory update --id "mem_123" --content "Updated content" --importan
 
 # Delete memory
 graphyne-cli memory delete --id "mem_123"
+```
+
+#### GraphRAG Operations (NEW in Phase 5)
+```bash
+# GraphRAG query
+graphyne-cli rag query --query "What does the user prefer?" --hops 2 --limit 10
+
+# Get subgraph
+graphyne-cli rag subgraph --node-ids "node1,node2" --hops 2
+
+# Expand node
+graphyne-cli rag expand --node-id "node1" --depth 1
 ```
 
 ### Using the Client SDK
@@ -407,6 +566,59 @@ cargo run -p graphyne-cli -- search --query "test"
 - **HTTP/JSON**: Port 8080
 - **Health Check**: `GET http://localhost:8080/health`
 
+## GraphRAG Examples
+
+### Example 1: Basic GraphRAG Query
+
+```bash
+# Query the knowledge graph for context
+curl -X POST http://localhost:8080/v1/graph/rag/query \
+  -H "Content-Type: application/json" \
+  -d '{
+    "query": "machine learning frameworks",
+    "max_hops": 2,
+    "limit": 10
+  }'
+```
+
+### Example 2: Building a Knowledge Graph
+
+```bash
+# Add nodes
+curl -X POST http://localhost:8080/v1/graph/nodes \
+  -H "Content-Type: application/json" \
+  -d '{"id": "pytorch", "node_type": "Framework", "label": "PyTorch", "properties": {"year": "2016"}}'
+
+curl -X POST http://localhost:8080/v1/graph/nodes \
+  -H "Content-Type: application/json" \
+  -d '{"id": "tensorflow", "node_type": "Framework", "label": "TensorFlow", "properties": {"year": "2015"}}'
+
+# Add relationships
+curl -X POST http://localhost:8080/v1/graph/edges \
+  -H "Content-Type: application/json" \
+  -d '{"from_id": "pytorch", "to_id": "tensorflow", "edge_type": "SIMILAR_TO", "weight": 0.8}'
+
+# Query the graph
+curl -X POST http://localhost:8080/v1/graph/rag/query \
+  -H "Content-Type: application/json" \
+  -d '{"query": "deep learning frameworks", "max_hops": 2}'
+```
+
+### Example 3: Memory with Graph Relationships
+
+```bash
+# Store memory with graph relationships
+cargo run -p graphyne-cli -- memory store \
+  --type "Semantic" \
+  --content "PyTorch is a machine learning framework" \
+  --importance 0.9
+
+# Use GraphRAG for enhanced recall
+cargo run -p graphyne-cli -- rag query \
+  --query "What machine learning frameworks are mentioned?" \
+  --hops 2
+```
+
 ## Development Status
 
 ### Phase 1 (Complete) ✅
@@ -440,6 +652,16 @@ cargo run -p graphyne-cli -- search --query "test"
 - ✅ Updated gRPC, HTTP APIs and CLI with memory commands
 - ✅ Agent-first architecture now fully functional
 
+### Phase 5 (Complete) ✅
+- ✅ Enhanced graph data model with rich node/edge types
+- ✅ GraphRAG engine for LLM context generation
+- ✅ Advanced graph traversal (shortest path, centrality, recommendations)
+- ✅ Graph-memory integration for relationship tracking
+- ✅ GraphRAGService added to gRPC proto and server
+- ✅ HTTP endpoints for GraphRAG queries (`/v1/graph/rag/query`, `/v1/graph/subgraph`, `/v1/graph/expand`)
+- ✅ CLI commands for graph reasoning (`graph rag query`, `graph rag subgraph`, `graph rag expand`)
+- ✅ Graph-based agent memory recall
+
 ## License
 
 Apache License 2.0
@@ -449,4 +671,5 @@ Apache License 2.0
 ✅ **Phase 1 Complete** - Foundations implemented (Cargo workspace, core crate, server skeleton)  
 ✅ **Phase 2 Complete** - Core retrieval engines (lexical, vector, graph, hybrid scoring)  
 ✅ **Phase 3 Complete** - API Layer (gRPC, HTTP/JSON, CLI, Client SDK)  
-✅ **Phase 4 Complete** - Agent & Memory Features (memory types, retention, scoring, context packing)
+✅ **Phase 4 Complete** - Agent & Memory Features (memory types, retention, scoring, context packing)  
+✅ **Phase 5 Complete** - Knowledge Graph & GraphRAG (enhanced graph model, GraphRAG engine, advanced traversal, graph-memory integration)

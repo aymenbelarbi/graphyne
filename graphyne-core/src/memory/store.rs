@@ -6,6 +6,7 @@ use crate::error::{Result, GraphyneError};
 use crate::lexical::LexicalIndex;
 use crate::vector::VectorIndex;
 use crate::graph::{GraphStore, GraphNode, GraphEdge};
+use crate::graph::rag::GraphRAG;
 
 use super::types::{MemoryEntry, MemoryType, MemorySpace, ScoringConfig};
 use super::retention::RetentionPolicy;
@@ -17,6 +18,7 @@ pub struct MemoryStore {
     lexical_index: LexicalIndex,
     vector_index: VectorIndex,
     graph_store: GraphStore,
+    graph_rag: Option<GraphRAG>,
     spaces: HashMap<String, MemorySpace>,
     default_space: String,
 }
@@ -37,11 +39,24 @@ impl MemoryStore {
             lexical_index,
             vector_index,
             graph_store,
+            graph_rag: None,
             spaces,
             default_space,
         })
     }
-
+    
+    /// Initialize GraphRAG for enhanced memory recall.
+    pub fn init_graph_rag(&mut self) -> Result<()> {
+        let graph_rag = GraphRAG::new(
+            self.graph_store.clone(),
+            self.vector_index.clone(),
+            self.lexical_index.clone(),
+            None,
+        );
+        self.graph_rag = Some(graph_rag);
+        Ok(())
+    }
+    
     /// Create a new memory space.
     pub fn create_space(&mut self, name: String) -> Result<()> {
         if self.spaces.contains_key(&name) {
@@ -102,13 +117,69 @@ impl MemoryStore {
             "metadata": entry.metadata,
         });
 
+        // Use first 100 chars of content as label
+        let label = if entry.content.len() > 100 {
+            format!("{}...", &entry.content[..100])
+        } else {
+            entry.content.clone()
+        };
+
         self.graph_store.add_node(
             &entry.id,
             "MemoryEntry",
+            &label,
             node_properties,
+            entry.embedding.clone(),
         )?;
 
         Ok(entry.id)
+    }
+    
+    /// Store a memory entry with graph relationships.
+    pub fn store_memory_with_graph(
+        &mut self, 
+        mut entry: MemoryEntry, 
+        relationships: Vec<(String, String, String)> // (from_id, edge_type, to_id)
+    ) -> Result<String> {
+        // Store the memory first
+        let memory_id = self.store_memory(entry, None)?;
+        
+        // Create relationships in graph
+        for (from_id, edge_type, to_id) in relationships {
+            // Ensure both nodes exist
+            if self.graph_store.get_node(&from_id)?.is_none() {
+                // Create a placeholder node if it doesn't exist
+                self.graph_store.add_node(
+                    &from_id,
+                    "Entity",
+                    &from_id,
+                    serde_json::json!({}),
+                    None,
+                )?;
+            }
+            
+            if self.graph_store.get_node(&to_id)?.is_none() {
+                // Create a placeholder node if it doesn't exist
+                self.graph_store.add_node(
+                    &to_id,
+                    "Entity",
+                    &to_id,
+                    serde_json::json!({}),
+                    None,
+                )?;
+            }
+            
+            // Add edge
+            self.graph_store.add_edge(
+                &from_id,
+                &to_id,
+                &edge_type,
+                serde_json::json!({}),
+                1.0,
+            )?;
+        }
+        
+        Ok(memory_id)
     }
 
     /// Retrieve a memory entry by ID.
@@ -157,6 +228,23 @@ impl MemoryStore {
                 entry.embedding = Some(embedding.clone());
                 // Update vector index
                 self.vector_index.add_embedding(&entry.id, &embedding)?;
+                // Update graph node with embedding
+                if let Some(mut node) = self.graph_store.get_node(&entry.id)? {
+                    node.embedding = Some(embedding);
+                    // Re-add node with updated embedding
+                    let props = serde_json::json!({
+                        "memory_type": format!("{:?}", entry.memory_type),
+                        "importance": entry.importance,
+                        "metadata": node.properties,
+                    });
+                    self.graph_store.add_node(
+                        &entry.id,
+                        "MemoryEntry",
+                        &node.label,
+                        props,
+                        node.embedding,
+                    )?;
+                }
             }
 
             // Save updated entry
@@ -263,6 +351,17 @@ impl MemoryStore {
         filtered_results.truncate(query.limit);
 
         Ok(filtered_results)
+    }
+    
+    /// Recall memories using GraphRAG for enhanced context.
+    pub fn recall_with_graph(&self, query: &str, max_hops: Option<usize>, limit: Option<usize>) -> Result<crate::graph::rag::GraphRAGResult> {
+        if let Some(ref graph_rag) = self.graph_rag {
+            graph_rag.query(query, max_hops, limit)
+        } else {
+            Err(GraphyneError::InvalidInput(
+                "GraphRAG not initialized. Call init_graph_rag() first.".to_string()
+            ))
+        }
     }
 
     /// Get memory by ID (helper that doesn't update access).
