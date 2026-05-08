@@ -246,8 +246,8 @@ pub fn create_router(state: AppState) -> Router {
         .route("/v1/graph/subgraph", post(subgraph_handler))
         .route("/v1/graph/expand/:node_id", post(expand_node_handler))
         
-        // Serve static files from graphyne-web directory
-        .nest_service("/", ServeDir::new("graphyne-web"))
+        // Serve static files from React build (dist folder)
+        .nest_service("/", ServeDir::new("graphyne-web/dist"))
         
         // Add tracing layer
         .layer(TraceLayer::new_for_http())

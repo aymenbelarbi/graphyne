@@ -152,6 +152,103 @@ cargo run --package graphyne-cli -- memory store --type working --content "Remem
 
 ---
 
+
+---
+
+## 🎨 Web UI (New!)
+
+Graphyne now includes a modern web interface built with **React + Vite + shadcn/ui** components.
+
+### Technology Stack
+
+| Technology | Purpose |
+|------------|---------|
+| **React 18** | UI framework |
+| **Vite** | Build tool & dev server |
+| **TypeScript** | Type-safe development |
+| **Tailwind CSS** | Utility-first styling |
+| **shadcn/ui** | Reusable component library |
+
+### Features
+
+#### 🔍 Search Page
+- Hybrid search with mode selection (hybrid, lexical, vector, graph)
+- Real-time search results
+- Responsive design with dark theme
+
+#### 🧠 Memory Browser
+- Store memories with type selection (working, episodic, semantic, procedural)
+- View stored memories
+- Configure retention policies and importance scoring
+
+#### 📊 Dashboard
+- System statistics at a glance
+- Stat cards: Total Searches, Total Memories, Storage Size, Uptime
+- Visual indicators and trends
+
+#### ⚙️ Settings
+- Server configuration
+- API endpoint management
+- Feature toggles
+
+### Quick Start
+
+#### Development Mode
+```bash
+cd graphyne-web
+npm install
+npm run dev
+```
+Access at: `http://localhost:5173`
+
+#### Production Build
+```bash
+cd graphyne-web
+npm run build
+```
+
+The build output will be in `graphyne-web/dist/`.
+
+#### Integration with Graphyne Server
+
+The server automatically serves the React build when available:
+
+```bash
+# Build the web UI
+./build.sh
+
+# Start the server (serves UI at http://localhost:8080)
+cargo run --package graphyne-server
+```
+
+The server's `http.rs` is configured to serve static files from `graphyne-web/dist/`.
+
+### Build Script
+
+Use the provided `build.sh` script for easy deployment:
+
+```bash
+chmod +x build.sh
+./build.sh              # Build web UI only
+./build.sh --with-server  # Build web UI + Rust server
+```
+
+### UI Components
+
+The UI is built with shadcn/ui components:
+- **Cards** - Dashboard stat cards, content containers
+- **Buttons** - Actions and submissions  
+- **Inputs** - Text inputs with labels
+- **Textarea** - Multi-line text input
+- **Tabs** - Page navigation
+- **Select** - Dropdown selections
+- **Badge** - Status indicators
+- **Label** - Form labels
+
+All components are styled with Tailwind CSS using a dark gradient theme (`slate-900` to `purple-900`).
+
+---
+
 ## 🏗️ Project Structure
 
 ```
