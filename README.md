@@ -1,6 +1,6 @@
 ![Graphyne Logo](graphyne.png)
 
-# Graphyne 🚀
+# Graphyne
 
 *A high-performance, agent-native search and knowledge graph engine*
 
@@ -73,27 +73,6 @@ cargo run --package graphyne-cli -- memory store --type semantic --content "Rust
 cargo run --package graphyne-cli -- rag query --query "machine learning" --hops 2
 ```
 
-### 🌐 API & Interfaces
-
-| Interface | Port | Protocol |
-|-----------|------|----------|
-| **gRPC** | 50051 | Protobuf via `tonic` |
-| **HTTP/JSON** | 8080 | REST via `axum` |
-| **CLI** | - | `clap`-based |
-| **Web UI** | 8080/ | Simple SPA |
-
-**HTTP API Examples:**
-```bash
-# Search
-curl "http://localhost:8080/v1/search?q=hello&mode=hybrid"
-
-# Store memory
-curl -X POST http://localhost:8080/v1/memory/store -d '{"type":"working","content":"..."}'
-
-# Health check
-curl http://localhost:8080/health
-```
-
 ### 📊 Observability & Control
 
 | Feature | Endpoint | Format |
@@ -119,14 +98,32 @@ curl http://localhost:8080/health
 
 ---
 
-## 🚀 Quick Start
+## 🔧 Building from Source
 
-### Installation
+### Prerequisites
+- Rust 1.75+ (install via [rustup](https://rustup.rs/))
+- Node.js 18+ (optional, for Web UI)
+- npm or yarn (optional, for Web UI)
+
+### Build Steps
 ```bash
+# Clone the repository
 git clone https://github.com/aymenbelarbi/graphyne.git
 cd graphyne
+
+# Build all Rust crates (release mode)
 cargo build --release
+
+# Optional: Build Web UI
+cd graphyne-web
+npm install
+npm run build
+cd ..
 ```
+
+---
+
+## 🚀 Quick Start
 
 ### Running the Server
 ```bash
@@ -144,18 +141,76 @@ cargo run --package graphyne-cli -- memory store --type working --content "Remem
 
 ---
 
+## 🧪 Running Tests
+
+Run all tests across the workspace:
+```bash
+cargo test --workspace
+```
+
+For specific package tests:
+```bash
+cargo test --package graphyne-core
+cargo test --package graphyne-server
+```
+
+---
+
 ## 📚 Documentation
 
 - **Architecture Plan**: [`plans/comprehensive-architectural-plan.md`](plans/comprehensive-architectural-plan.md)
-- **API Documentation**: Available at `http://localhost:8080/` when server is running
 - **gRPC Proto**: [`graphyne-proto/proto/graphyne.proto`](graphyne-proto/proto/graphyne.proto)
 
 ---
 
+## 🔌 API Documentation
+
+Graphyne provides both gRPC and HTTP/JSON APIs for interacting with the system.
+
+### gRPC API (Port 50051)
+Protobuf service definitions available in [`graphyne-proto/proto/graphyne.proto`](graphyne-proto/proto/graphyne.proto)
+
+**Available Services:**
+- `SearchService` - Query, Suggest
+- `DocumentService` - PushDocument, PopDocument, GetDocument
+- `VectorService` - AddEmbedding, SearchVector
+- `GraphService` - AddNode, AddEdge, TraverseGraph
+- `MemoryService` - StoreMemory, RecallMemory
+- `GraphRAGService` - Query, GetSubgraph, ExpandNode
+- `AdminService` - GetStats, GetHealth, Flush, Backup, Restore, Compact
+
+### HTTP/JSON API (Port 8080)
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/v1/search` | GET | Search across collections (params: q, mode, limit) |
+| `/v1/memory/store` | POST | Store a memory entry |
+| `/v1/memory/recall` | GET | Recall memories (params: query, type) |
+| `/v1/graph/rag/query` | POST | GraphRAG query |
+| `/health` | GET | Health check |
+| `/metrics` | GET | Prometheus metrics |
+| `/admin/stats` | GET | Admin statistics |
+| `/admin/flush` | POST | Flush data to disk |
+| `/admin/backup` | POST | Create backup |
+| `/admin/restore` | POST | Restore from backup |
+| `/admin/compact` | POST | Compact storage |
+
+### CLI Usage
+```bash
+# Search
+cargo run --package graphyne-cli -- search --query "AI agents" --mode hybrid
+
+# Store memory
+cargo run --package graphyne-cli -- memory store --type semantic --content "Rust is memory-safe"
+
+# Admin operations
+cargo run --package graphyne-cli -- admin stats
+cargo run --package graphyne-cli -- admin health
+```
 
 ---
 
-## 🎨 Web UI (New!)
+## 🎨 Web UI
 
 Graphyne now includes a modern web interface built with **React + Vite + shadcn/ui** components.
 
@@ -258,9 +313,23 @@ graphyne/
 ├── graphyne-client/      # Client SDK
 ├── graphyne-cli/         # Command-line tool
 ├── graphyne-proto/       # Protobuf definitions
-├── graphyne-web/         # Web UI (optional)
+├── graphyne-web/         # Web UI (React + shadcn/ui)
 └── README.md
 ```
+
+---
+
+## 🤝 Contributing
+
+Contributions are welcome! Please follow these steps:
+
+1. Fork the repository
+2. Create a new branch for your feature/fix
+3. Write tests for your changes
+4. Ensure all tests pass: `cargo test --workspace`
+5. Submit a pull request with a clear description of changes
+
+For major changes, please open an issue first to discuss the proposed changes.
 
 ---
 
