@@ -20,6 +20,32 @@ Graphyne is a **high-performance, agent-native search and knowledge graph engine
 
 ---
 
+## ⚡️ Problem Statement
+
+Building intelligent agents and search systems today requires stitching together separate tools — a keyword search engine, a vector database, a graph database, and a memory layer — each with its own API, data model, and operational overhead.
+
+This fragmentation creates brittle integrations, inconsistent results, and high infrastructure costs. There is no single backend that natively handles all three retrieval paradigms and understands the memory needs of autonomous agents.
+
+## 💡️ Solution Design
+
+Graphyne is a single Rust binary that unifies BM25 lexical search, HNSW vector search, and a typed property graph under one hybrid scoring engine.
+
+Each document, node, and memory entry is indexed once and queryable across all three dimensions. A configurable scoring function — combining lexical relevance, vector similarity, graph centrality, recency, and importance — produces ranked results without external orchestration.
+
+## 🎯 Use Cases
+
+### 🤖️ Agent Memory
+Persist working, episodic, semantic, and procedural memory; retrieve context ranked by recency and importance at each step.
+
+### 🕸️ GraphRAG
+Anchor entities via vector search, expand via traversal, inject a scored subgraph as structured LLM context.
+
+### 💻️ Codebase Intelligence
+Model files, functions, and services as graph nodes; answer dependency queries with traversal and semantic search.
+
+### 🏢️ Multi-tenant Search
+Isolate tenants via collections and buckets; serve millions of documents with tunable BM25 and vector recall.
+
 ## ✨ Core Features
 
 ### 🔍 Hybrid Search Engine
@@ -158,7 +184,6 @@ cargo test --package graphyne-server
 
 ## 📚 Documentation
 
-- **Architecture Plan**: [`plans/comprehensive-architectural-plan.md`](plans/comprehensive-architectural-plan.md)
 - **gRPC Proto**: [`graphyne-proto/proto/graphyne.proto`](graphyne-proto/proto/graphyne.proto)
 
 ---
