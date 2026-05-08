@@ -27,6 +27,9 @@ service GraphService {
 service MemoryService {
   rpc StoreMemory(StoreMemoryRequest) returns (StoreMemoryResponse);
   rpc RecallMemory(RecallMemoryRequest) returns (RecallMemoryResponse);
+  rpc GetMemorySpaces(GetMemorySpacesRequest) returns (GetMemorySpacesResponse);
+  rpc UpdateMemory(UpdateMemoryRequest) returns (UpdateMemoryResponse);
+  rpc DeleteMemory(DeleteMemoryRequest) returns (DeleteMemoryResponse);
 }
 
 message SearchRequest {
@@ -162,24 +165,97 @@ message GraphEdge {
   map<string, string> properties = 4;
 }
 
+// Memory Service Messages
+
+enum MemoryType {
+  MEMORY_TYPE_UNSPECIFIED = 0;
+  WORKING = 1;
+  EPISODIC = 2;
+  SEMANTIC = 3;
+  PROCEDURAL = 4;
+}
+
+message MemoryEntry {
+  string id = 1;
+  MemoryType memory_type = 2;
+  string content = 3;
+  repeated float embedding = 4;
+  map<string, string> metadata = 5;
+  string created_at = 6;
+  string last_accessed = 7;
+  uint32 access_count = 8;
+  float importance = 9;
+}
+
 message StoreMemoryRequest {
-  string key = 1;
-  string value = 2;
-  map<string, string> metadata = 3;
+  MemoryType memory_type = 1;
+  string content = 2;
+  repeated float embedding = 3;
+  float importance = 4;
+  map<string, string> metadata = 5;
+  string space = 6;
 }
 
 message StoreMemoryResponse {
   bool success = 1;
   string message = 2;
+  string memory_id = 3;
 }
 
 message RecallMemoryRequest {
-  string key = 1;
-  string query = 2;
+  string query_text = 1;
+  repeated float embedding = 2;
+  repeated MemoryType memory_types = 3;
+  string start_time = 4;
+  string end_time = 5;
+  float min_importance = 6;
+  int32 limit = 7;
+  string space = 8;
 }
 
 message RecallMemoryResponse {
-  string key = 1;
-  string value = 2;
-  map<string, string> metadata = 3;
+  bool success = 1;
+  string message = 2;
+  repeated MemoryEntry memories = 3;
+  repeated float scores = 4;
+}
+
+message GetMemorySpacesRequest {
+  // Empty request
+}
+
+message MemorySpace {
+  string name = 1;
+  repeated MemoryType memory_types = 2;
+  string retention_policy = 3;  // JSON string
+  int32 max_entries = 4;
+  string scoring_config = 4;  // JSON string
+}
+
+message GetMemorySpacesResponse {
+  bool success = 1;
+  string message = 2;
+  repeated MemorySpace spaces = 3;
+}
+
+message UpdateMemoryRequest {
+  string memory_id = 1;
+  string content = 2;
+  float importance = 3;
+  map<string, string> metadata = 4;
+  repeated float embedding = 5;
+}
+
+message UpdateMemoryResponse {
+  bool success = 1;
+  string message = 2;
+}
+
+message DeleteMemoryRequest {
+  string memory_id = 1;
+}
+
+message DeleteMemoryResponse {
+  bool success = 1;
+  string message = 2;
 }

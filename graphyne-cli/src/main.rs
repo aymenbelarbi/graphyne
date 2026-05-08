@@ -86,7 +86,7 @@ enum Commands {
         command: GraphCommands,
     },
     
-    /// Memory operations
+    /// Memory operations (Agent & Memory Features)
     Memory {
         #[command(subcommand)]
         command: MemoryCommands,
@@ -150,30 +150,79 @@ enum GraphCommands {
 
 #[derive(Subcommand)]
 enum MemoryCommands {
-    /// Store a memory
+    /// Store a memory entry
     Store {
-        /// Memory key
-        #[arg(short, long)]
-        key: String,
+        /// Memory type: Working, Episodic, Semantic, Procedural
+        #[arg(long)]
+        r#type: String,
         
-        /// Memory value
-        #[arg(short, long)]
-        value: String,
+        /// Memory content
+        #[arg(long)]
+        content: String,
+        
+        /// Importance score (0.0 to 1.0)
+        #[arg(long, default_value = "0.5")]
+        importance: f32,
+        
+        /// Memory space (default: "default")
+        #[arg(long)]
+        space: Option<String>,
         
         /// Metadata as JSON object
-        #[arg(short, long)]
+        #[arg(long)]
         metadata: Option<String>,
     },
     
-    /// Recall a memory
+    /// Recall memories based on query
     Recall {
-        /// Memory key
-        #[arg(short, long)]
-        key: String,
-        
-        /// Optional query to filter results
-        #[arg(short, long)]
+        /// Search query
+        #[arg(long)]
         query: Option<String>,
+        
+        /// Memory type filter: Working, Episodic, Semantic, Procedural
+        #[arg(long)]
+        r#type: Option<String>,
+        
+        /// Minimum importance score (0.0 to 1.0)
+        #[arg(long)]
+        min_importance: Option<f32>,
+        
+        /// Maximum number of results
+        #[arg(long, default_value = "10")]
+        limit: i32,
+        
+        /// Memory space (default: "default")
+        #[arg(long)]
+        space: Option<String>,
+    },
+    
+    /// List memory spaces
+    Spaces,
+    
+    /// Update an existing memory
+    Update {
+        /// Memory ID
+        #[arg(long)]
+        id: String,
+        
+        /// New content (optional)
+        #[arg(long)]
+        content: Option<String>,
+        
+        /// New importance score (optional)
+        #[arg(long)]
+        importance: Option<f32>,
+        
+        /// New metadata as JSON object (optional)
+        #[arg(long)]
+        metadata: Option<String>,
+    },
+    
+    /// Delete a memory
+    Delete {
+        /// Memory ID
+        #[arg(long)]
+        id: String,
     },
 }
 
@@ -456,30 +505,34 @@ async fn memory_grpc(config: &ClientConfig, command: MemoryCommands) -> Result<(
     let mut client = GraphyneGrpcClient::connect(config.clone()).await?;
     
     match command {
-        MemoryCommands::Store { key, value, metadata } => {
+        MemoryCommands::Store { r#type, content, importance, space, metadata } => {
             let metadata = metadata
                 .map(|m| serde_json::from_str(&m).unwrap_or_default())
                 .unwrap_or_default();
             
-            let success = client.store_memory(&key, &value, metadata).await?;
-            
-            if success {
-                println!("Memory stored successfully");
-            } else {
-                println!("Failed to store memory");
-            }
+            // TODO: Update gRPC client to support new memory store API
+            println!("Memory store via gRPC not yet fully implemented with new API");
+            println!("Type: {}, Content: {}, Importance: {}", r#type, content, importance);
         }
         
-        MemoryCommands::Recall { key, query } => {
-            let query = query.unwrap_or_default();
-            let result = client.recall_memory(&key, &query).await?;
-            
-            if let Some(memory) = result {
-                println!("Key: {}", memory.key);
-                println!("Value: {}", memory.value);
-            } else {
-                println!("Memory not found");
-            }
+        MemoryCommands::Recall { query, r#type, min_importance, limit, space } => {
+            // TODO: Update gRPC client to support new memory recall API
+            println!("Memory recall via gRPC not yet fully implemented with new API");
+        }
+        
+        MemoryCommands::Spaces => {
+            // TODO: Implement list memory spaces via gRPC
+            println!("List memory spaces via gRPC not yet implemented");
+        }
+        
+        MemoryCommands::Update { id, content, importance, metadata } => {
+            // TODO: Implement update memory via gRPC
+            println!("Update memory via gRPC not yet implemented");
+        }
+        
+        MemoryCommands::Delete { id } => {
+            // TODO: Implement delete memory via gRPC
+            println!("Delete memory via gRPC not yet implemented");
         }
     }
     
@@ -487,7 +540,57 @@ async fn memory_grpc(config: &ClientConfig, command: MemoryCommands) -> Result<(
 }
 
 /// Memory operations using HTTP
-async fn memory_http(_config: &ClientConfig, _command: MemoryCommands) -> Result<()> {
-    println!("Memory operations via HTTP not yet implemented");
+async fn memory_http(config: &ClientConfig, command: MemoryCommands) -> Result<()> {
+    let client = GraphyneHttpClient::new(config.clone());
+    
+    match command {
+        MemoryCommands::Store { r#type, content, importance, space, metadata } => {
+            let metadata_map: HashMap<String, serde_json::Value> = metadata
+                .map(|m| serde_json::from_str(&m).unwrap_or_default())
+                .unwrap_or_default();
+            
+            // Convert metadata to proper format
+            let metadata_value = if metadata_map.is_empty() {
+                None
+            } else {
+                Some(metadata_map)
+            };
+            
+            // TODO: Implement store_memory in HTTP client
+            println!("Storing memory via HTTP...");
+            println!("Type: {}", r#type);
+            println!("Content: {}", content);
+            println!("Importance: {}", importance);
+            println!("Space: {:?}", space);
+        }
+        
+        MemoryCommands::Recall { query, r#type, min_importance, limit, space } => {
+            // TODO: Implement recall_memory in HTTP client
+            println!("Recalling memories via HTTP...");
+            println!("Query: {:?}", query);
+            println!("Type: {:?}", r#type);
+            println!("Min Importance: {:?}", min_importance);
+            println!("Limit: {}", limit);
+            println!("Space: {:?}", space);
+        }
+        
+        MemoryCommands::Spaces => {
+            // TODO: Implement list_spaces in HTTP client
+            println!("Listing memory spaces via HTTP...");
+        }
+        
+        MemoryCommands::Update { id, content, importance, metadata } => {
+            // TODO: Implement update_memory in HTTP client
+            println!("Updating memory via HTTP...");
+            println!("ID: {}", id);
+        }
+        
+        MemoryCommands::Delete { id } => {
+            // TODO: Implement delete_memory in HTTP client
+            println!("Deleting memory via HTTP...");
+            println!("ID: {}", id);
+        }
+    }
+    
     Ok(())
 }

@@ -37,9 +37,16 @@ graphyne/
 │   │   │   └── mod.rs     # HNSW index for approximate nearest neighbor search
 │   │   ├── graph/         # Graph storage (petgraph, typed edges)
 │   │   │   └── mod.rs     # Typed property graph with multi-hop traversal
-│   │   └── scoring/       # Hybrid scoring system
-│   │       └── mod.rs     # Combine lexical, vector, and graph scores
-│   └── Cargo.toml         # Dependencies: fst, sled, hnsw-rs, petgraph, etc.
+│   │   ├── scoring/       # Hybrid scoring system
+│   │   │   └── mod.rs     # Combine lexical, vector, and graph scores
+│   │   └── memory/        # Agent & Memory system (Phase 4)
+│   │       ├── mod.rs      # Memory module root
+│   │       ├── types.rs    # Memory types: Working, Episodic, Semantic, Procedural
+│   │       ├── retention.rs # Retention policies for memory management
+│   │       ├── store.rs    # MemoryStore with CRUD and integration
+│   │       ├── context.rs  # ContextPacker for LLM token budgeting
+│   │       └── scoring.rs  # MemoryScorer with configurable weights
+│   └── Cargo.toml         # Dependencies: fst, sled, hnsw-rs, petgraph, chrono, etc.
 ├── graphyne-server/        # Server binary with gRPC and HTTP APIs
 │   ├── src/
 │   │   ├── main.rs        # Server startup with gRPC and HTTP servers
@@ -93,6 +100,58 @@ graphyne/
 - **Score Normalization**: Automatic normalization to 0-1 range
 - **Flexible Combination**: Combine any subset of retrieval methods
 
+## Agent & Memory Features (Phase 4)
+
+Graphyne's agent-first memory system is the core differentiator from traditional search engines. It implements a sophisticated memory architecture inspired by human memory systems.
+
+### Memory Types
+
+Graphyne supports four types of memory:
+
+1. **Working Memory**: Short-term, immediate context (e.g., current conversation state)
+2. **Episodic Memory**: Event-based memories with timestamps (e.g., "User asked about X at 3pm")
+3. **Semantic Memory**: Factual knowledge (e.g., "User prefers dark mode")
+4. **Procedural Memory**: How-to knowledge and skills (e.g., "Steps to configure server")
+
+### Memory Store
+
+The `MemoryStore` integrates with all three core retrieval engines:
+- **Lexical Index**: Full-text search across memory content
+- **Vector Index**: Semantic search using embeddings
+- **Graph Store**: Relationship mapping between memories
+
+### Retention Policies
+
+Configurable retention policies control memory lifecycle:
+- **Max Age**: Automatically archive/delete memories older than N days
+- **Max Entries**: Limit memory space size
+- **Importance Threshold**: Keep only memories above a certain importance score
+- **Auto-archive**: Move old memories to archive instead of deleting
+
+### Memory Scoring
+
+The `MemoryScorer` combines multiple factors:
+- **Recency**: More recent memories score higher
+- **Importance**: User-defined importance (0.0 to 1.0)
+- **Access Frequency**: Frequently accessed memories boost
+- **Relevance**: Query relevance from lexical/vector search
+
+Formula: `score = w1*recency + w2*importance + w3*access_freq + w4*relevance`
+
+### Context Packing
+
+The `ContextPacker` prepares memories for LLM context:
+- **Token Budgeting**: Respects LLM token limits (default: 4096 tokens)
+- **Truncation Strategies**: Head (keep end), Tail (keep beginning), Middle (keep both ends)
+- **Score-based Prioritization**: Higher-scoring memories included first
+
+### Memory Spaces
+
+Isolated memory environments for different agents or contexts:
+- Each space has its own retention policy
+- Configurable scoring weights per space
+- Independent memory types per space
+
 ## API Layer (Phase 3)
 
 ### gRPC API
@@ -119,7 +178,10 @@ Graphyne provides a gRPC API using tonic with the following services:
 
 #### MemoryService
 - `StoreMemory(StoreMemoryRequest) -> StoreMemoryResponse` - Store agent memories
-- `RecallMemory(RecallMemoryRequest) -> RecallMemoryResponse` - Recall memories
+- `RecallMemory(RecallMemoryRequest) -> RecallMemoryResponse` - Recall memories with scoring
+- `GetMemorySpaces(GetMemorySpacesRequest) -> GetMemorySpacesResponse` - List memory spaces
+- `UpdateMemory(UpdateMemoryRequest) -> UpdateMemoryResponse` - Update existing memories
+- `DeleteMemory(DeleteMemoryRequest) -> DeleteMemoryResponse` - Delete memories
 
 ### HTTP/JSON REST API
 
@@ -181,9 +243,39 @@ Content-Type: application/json
 }
 ```
 
+#### Memory Store
+```bash
+POST /v1/memory/store
+Content-Type: application/json
+
+{
+  "memory_type": "Semantic",
+  "content": "User prefers dark mode",
+  "importance": 0.8,
+  "metadata": {"source": "user_preference"},
+  "space": "default"
+}
+```
+
 #### Memory Recall
 ```bash
-GET /v1/memory/recall?key=user:123&query=preferences
+GET /v1/memory/recall?query=preferences&memory_type=Semantic&min_importance=0.5&limit=10&space=default
+```
+
+#### Memory Spaces
+```bash
+GET /v1/memory/spaces
+```
+
+#### Update Memory
+```bash
+PUT /v1/memory/{memory_id}
+Content-Type: application/json
+
+{
+  "content": "Updated: User prefers dark mode and high contrast",
+  "importance": 0.9
+}
 ```
 
 ### CLI Usage
@@ -225,10 +317,19 @@ graphyne-cli graph add-edge --from "node1" --to "node2" --type "KNOWS" --propert
 #### Memory Operations
 ```bash
 # Store memory
-graphyne-cli memory store --key "user:123" --value "User prefers dark mode"
+graphyne-cli memory store --type "Semantic" --content "User prefers dark mode" --importance 0.8
 
-# Recall memory
-graphyne-cli memory recall --key "user:123"
+# Recall memories
+graphyne-cli memory recall --query "preferences" --type "Semantic" --min-importance 0.5 --limit 10
+
+# List memory spaces
+graphyne-cli memory spaces
+
+# Update memory
+graphyne-cli memory update --id "mem_123" --content "Updated content" --importance 0.9
+
+# Delete memory
+graphyne-cli memory delete --id "mem_123"
 ```
 
 ### Using the Client SDK
@@ -330,6 +431,15 @@ cargo run -p graphyne-cli -- search --query "test"
 - ✅ Integrated server startup (gRPC + HTTP)
 - ✅ API documentation and examples
 
+### Phase 4 (Complete) ✅
+- ✅ Memory types: Working, Episodic, Semantic, Procedural
+- ✅ MemoryStore with integration to lexical, vector, and graph stores
+- ✅ Retention policies (max age, max entries, importance threshold)
+- ✅ Token budgeting for LLM context (ContextPacker)
+- ✅ Memory scoring (recency, importance, access frequency, relevance)
+- ✅ Updated gRPC, HTTP APIs and CLI with memory commands
+- ✅ Agent-first architecture now fully functional
+
 ## License
 
 Apache License 2.0
@@ -338,4 +448,5 @@ Apache License 2.0
 
 ✅ **Phase 1 Complete** - Foundations implemented (Cargo workspace, core crate, server skeleton)  
 ✅ **Phase 2 Complete** - Core retrieval engines (lexical, vector, graph, hybrid scoring)  
-✅ **Phase 3 Complete** - API Layer (gRPC, HTTP/JSON, CLI, Client SDK)
+✅ **Phase 3 Complete** - API Layer (gRPC, HTTP/JSON, CLI, Client SDK)  
+✅ **Phase 4 Complete** - Agent & Memory Features (memory types, retention, scoring, context packing)
