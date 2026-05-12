@@ -21,7 +21,7 @@ pub struct GraphyneMetrics {
 }
 
 impl GraphyneMetrics {
-    pub fn new() -> Result<Self, prometheus::Error> {
+    pub fn new() -> Result<Self> {
         let registry = Registry::new();
         
         // Search metrics
@@ -96,7 +96,7 @@ impl GraphyneMetrics {
         })
     }
     
-    pub fn export(&self) -> Result<String, prometheus::Error> {
+    pub fn export(&self) -> Result<String> {
         let encoder = prometheus::TextEncoder::new();
         let metric_families = self.registry.gather();
         let mut buffer = Vec::new();

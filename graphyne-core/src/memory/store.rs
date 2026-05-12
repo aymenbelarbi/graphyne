@@ -10,6 +10,7 @@ use crate::graph::rag::GraphRAG;
 
 use super::types::{MemoryEntry, MemoryType, MemorySpace, ScoringConfig};
 use super::retention::RetentionPolicy;
+use super::scoring::MemoryScorer;
 use super::MemoryQuery;
 
 /// Main memory store that integrates with lexical, vector, and graph stores.

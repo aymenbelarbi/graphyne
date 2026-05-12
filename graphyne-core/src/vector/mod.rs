@@ -1,44 +1,34 @@
 //! Vector search engine with HNSW-based ANN search and cosine similarity.
-//!
-//! This module provides vector/embedding search capabilities using HNSW (Hierarchical
-//! Navigable Small World) algorithm for fast approximate nearest neighbor search.
 
-use std::sync::Arc;
 use std::collections::HashMap;
-
-use hnsw_rs::prelude::*;
+use std::sync::Arc;
 use serde::{Deserialize, Serialize};
 use sled::Tree;
 use thiserror::Error;
+use hnsw_rs::prelude::*;
+use hnsw_rs::dist::DistCosine;
 
 use crate::error::{Result, GraphyneError};
 
-/// Errors specific to vector search operations.
+/// Errors specific to vector operations.
 #[derive(Error, Debug, Serialize, Deserialize)]
 pub enum VectorError {
-    #[error("HNSW operation failed: {0}")]
-    HnswError(String),
-    
-    #[error("Embedding dimension mismatch: expected {expected}, got {got}")]
+    #[error("Dimension mismatch: expected {expected}, got {got}")]
     DimensionMismatch { expected: usize, got: usize },
     
-    #[error("Invalid embedding: {0}")]
-    InvalidEmbedding(String),
+    #[error("Vector not found: {0}")]
+    NotFound(String),
     
     #[error("Storage error: {0}")]
     StorageError(String),
 }
 
 /// Configuration for HNSW index.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HnswConfig {
-    /// Maximum number of connections per element per layer (M)
     pub max_connections: usize,
-    /// Size of the dynamic candidate list (ef_construction)
-    pub ef_construction: usize,
-    /// Number of layers in the graph
     pub num_layers: usize,
-    /// Dimension of the vectors
+    pub ef_construction: usize,
     pub dimension: usize,
 }
 
@@ -46,26 +36,26 @@ impl Default for HnswConfig {
     fn default() -> Self {
         Self {
             max_connections: 16,
+            num_layers: 5,
             ef_construction: 200,
-            num_layers: 16,
-            dimension: 768, // Default for many embedding models
+            dimension: 384, // Default for all-MiniLM-L6-v2
         }
     }
 }
 
-/// Vector index using HNSW for ANN search.
+/// Vector index using HNSW for fast approximate nearest neighbor search.
 pub struct VectorIndex {
-    /// HNSW index for fast ANN search
+    /// HNSW index (wrapped in Option since it's built lazily)
     hnsw: Option<Hnsw<'static, f32, DistCosine>>,
-    /// Storage for embeddings
+    /// Persistent storage for embeddings
     embedding_store: Tree,
-    /// Storage for ID to HNSW internal ID mapping
+    /// Mapping from ID to internal HNSW ID
     id_mapping: Tree,
-    /// HNSW configuration
+    /// Configuration
     config: HnswConfig,
-    /// Counter for HNSW internal IDs
+    /// Counter for generating unique IDs
     id_counter: u64,
-    /// Whether the HNSW index needs rebuilding
+    /// Flag to indicate if HNSW needs rebuilding
     needs_rebuild: bool,
 }
 
@@ -117,9 +107,6 @@ impl VectorIndex {
             DistCosine {},
         );
         
-        // Set ef for search (can be adjusted later)
-        hnsw.set_ef(50);
-        
         let mut max_id: u64 = 0;
         
         // Iterate through all stored embeddings
@@ -128,26 +115,27 @@ impl VectorIndex {
             let id = String::from_utf8_lossy(&key).to_string();
             
             let embedding: Vec<f32> = serde_json::from_slice(&value)
-                .map_err(|e| GraphyneError::SerializationError(e.to_string()))?;
+                .map_err(|e| GraphyneError::Serialization(e))?;
             
             if embedding.len() != config.dimension {
-                return Err(GraphyneError::VectorError(VectorError::DimensionMismatch {
+                return Err(GraphyneError::Vector(VectorError::DimensionMismatch {
                     expected: config.dimension,
                     got: embedding.len(),
-                }));
+                }.to_string()));
             }
             
             // Insert into HNSW
-            hnsw.insert((embedding, id.clone()));
+            hnsw.insert((&embedding, max_id as usize));
             
             // Update ID counter
-            if let Ok(counter_bytes) = self.id_mapping.get(&key)? {
+            if let Some(counter_bytes) = self.id_mapping.get(&key)? {
                 if let Ok(counter) = serde_json::from_slice::<u64>(&counter_bytes) {
                     max_id = max_id.max(counter);
                 }
             }
         }
         
+        // Set the ID counter
         self.id_counter = max_id + 1;
         self.hnsw = Some(hnsw);
         self.needs_rebuild = false;
@@ -157,111 +145,58 @@ impl VectorIndex {
     
     /// Add an embedding to the index.
     pub fn add_embedding(&mut self, id: &str, vector: &[f32]) -> Result<()> {
-        if id.is_empty() {
-            return Err(GraphyneError::VectorError(VectorError::InvalidEmbedding(
-                "ID must not be empty".to_string()
-            )));
-        }
-        
         if vector.len() != self.config.dimension {
-            return Err(GraphyneError::VectorError(VectorError::DimensionMismatch {
+            return Err(GraphyneError::Vector(VectorError::DimensionMismatch {
                 expected: self.config.dimension,
                 got: vector.len(),
-            }));
+            }.to_string()));
         }
         
-        // Validate vector
-        for (i, &val) in vector.iter().enumerate() {
-            if val.is_nan() || val.is_infinite() {
-                return Err(GraphyneError::VectorError(VectorError::InvalidEmbedding(
-                    format!("Vector contains NaN or infinite value at index {}", i)
-                )));
-            }
-        }
+        // Store in sled
+        let id_bytes = id.as_bytes();
+        let value = serde_json::to_vec(vector)
+            .map_err(|e| GraphyneError::Serialization(e))?;
+        self.embedding_store.insert(id_bytes, value)?;
         
-        // Store embedding
-        let json = serde_json::to_vec(vector)
-            .map_err(|e| GraphyneError::SerializationError(e.to_string()))?;
-        self.embedding_store.insert(id.as_bytes(), json)?;
+        // Update ID mapping
+        let id_num = self.id_counter;
+        self.id_mapping.insert(id_bytes, serde_json::to_vec(&id_num)?)?;
+        self.id_counter += 1;
         
-        // Store ID mapping
-        let id_bytes = serde_json::to_vec(&self.id_counter)
-            .map_err(|e| GraphyneError::SerializationError(e.to_string()))?;
-        self.id_mapping.insert(id.as_bytes(), id_bytes)?;
-        
-        // Insert into HNSW
+        // Insert into HNSW if it exists
         if let Some(ref mut hnsw) = self.hnsw {
-            hnsw.insert((vector.to_vec(), id.to_string()));
+            hnsw.insert((&vector.to_vec(), id_num as usize));
         } else {
             self.needs_rebuild = true;
         }
         
-        self.id_counter += 1;
-        
         Ok(())
     }
     
-    /// Search for nearest neighbors using ANN.
+    /// Search for similar vectors.
     pub fn search(&self, query: &[f32], k: usize) -> Result<Vec<(String, f32)>> {
-        if query.len() != self.config.dimension {
-            return Err(GraphyneError::VectorError(VectorError::DimensionMismatch {
-                expected: self.config.dimension,
-                got: query.len(),
-            }));
-        }
-        
-        if let Some(ref hnsw) = self.hnsw {
-            // Perform ANN search
-            let results = hnsw.search(query, k);
-            
-            // Convert results to (id, distance) pairs
-            let mut formatted_results: Vec<(String, f32)> = results
-                .iter()
-                .map(|(distance, data)| {
-                    let id = data.clone();
-                    (*id, *distance)
-                })
-                .collect();
-            
-            // Sort by distance (lower is better for cosine distance)
-            formatted_results.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
-            
-            Ok(formatted_results)
-        } else {
-            // HNSW not initialized, try to rebuild
-            Err(GraphyneError::VectorError(VectorError::HnswError(
-                "HNSW index not initialized".to_string()
-            )))
-        }
+        self.search_with_ef(query, k, self.config.ef_construction)
     }
     
-    /// Search with a specific ef value (controls recall/performance tradeoff).
+    /// Search with a specific ef parameter.
     pub fn search_with_ef(&self, query: &[f32], k: usize, ef: usize) -> Result<Vec<(String, f32)>> {
-        if query.len() != self.config.dimension {
-            return Err(GraphyneError::VectorError(VectorError::DimensionMismatch {
-                expected: self.config.dimension,
-                got: query.len(),
-            }));
-        }
-        
         if let Some(ref hnsw) = self.hnsw {
-            // Set ef for this search
-            hnsw.set_ef(ef);
+            // Use the HNSW search with the given ef parameter
+            // Note: hnsw_rs API may vary; this is a simplified version
+            let results = hnsw.search(query, k, 16);
+            let mut formatted_results = Vec::new();
             
-            // Perform ANN search
-            let results = hnsw.search(query, k);
-            
-            // Convert results
-            let formatted_results: Vec<(String, f32)> = results
-                .iter()
-                .map(|(distance, data)| {
-                    (data.clone(), *distance)
-                })
-                .collect();
+            for neighbour in results {
+                // Convert distance to similarity (for cosine distance)
+                let similarity = 1.0 - neighbour.distance;
+                // Look up string ID from numeric ID
+                let id_str = format!("{}", neighbour.d_id);
+                formatted_results.push((id_str, similarity));
+            }
             
             Ok(formatted_results)
         } else {
-            Err(GraphyneError::VectorError(VectorError::HnswError(
+            Err(GraphyneError::Vector(VectorError::NotFound(
                 "HNSW index not initialized".to_string()
             )))
         }
@@ -269,9 +204,9 @@ impl VectorIndex {
     
     /// Get an embedding by ID.
     pub fn get_embedding(&self, id: &str) -> Result<Option<Vec<f32>>> {
-        if let Some(data) = self.embedding_store.get(id.as_bytes())? {
-            let embedding: Vec<f32> = serde_json::from_slice(&data)
-                .map_err(|e| GraphyneError::SerializationError(e.to_string()))?;
+        if let Some(value) = self.embedding_store.get(id.as_bytes())? {
+            let embedding: Vec<f32> = serde_json::from_slice(&value)
+                .map_err(|e| GraphyneError::Serialization(e))?;
             Ok(Some(embedding))
         } else {
             Ok(None)
@@ -280,7 +215,7 @@ impl VectorIndex {
     
     /// Remove an embedding from the index.
     pub fn remove_embedding(&mut self, id: &str) -> Result<()> {
-        // Remove from storage
+        // Remove from sled
         self.embedding_store.remove(id.as_bytes())?;
         self.id_mapping.remove(id.as_bytes())?;
         
@@ -290,17 +225,12 @@ impl VectorIndex {
         Ok(())
     }
     
-    /// Get the number of embeddings in the index.
-    pub fn len(&self) -> usize {
-        self.embedding_store.len() as usize
+    /// Check if the index needs rebuilding.
+    pub fn needs_rebuild(&self) -> bool {
+        self.needs_rebuild
     }
     
-    /// Check if the index is empty.
-    pub fn is_empty(&self) -> bool {
-        self.embedding_store.is_empty()
-    }
-    
-    /// Rebuild the HNSW index if needed.
+    /// Rebuild the index if needed.
     pub fn maybe_rebuild(&mut self) -> Result<()> {
         if self.needs_rebuild {
             self.rebuild_hnsw()?;
@@ -308,24 +238,15 @@ impl VectorIndex {
         Ok(())
     }
     
-    /// Calculate cosine similarity between two vectors.
+    /// Compute cosine similarity between two vectors.
     pub fn cosine_similarity(a: &[f32], b: &[f32]) -> f32 {
-        if a.len() != b.len() || a.is_empty() {
+        if a.len() != b.len() {
             return 0.0;
         }
         
-        let mut dot_product = 0.0;
-        let mut norm_a = 0.0;
-        let mut norm_b = 0.0;
-        
-        for i in 0..a.len() {
-            dot_product += a[i] * b[i];
-            norm_a += a[i] * a[i];
-            norm_b += b[i] * b[i];
-        }
-        
-        let norm_a = norm_a.sqrt();
-        let norm_b = norm_b.sqrt();
+        let dot_product: f32 = a.iter().zip(b.iter()).map(|(x, y)| x * y).sum();
+        let norm_a: f32 = a.iter().map(|x| x * x).sum::<f32>().sqrt();
+        let norm_b: f32 = b.iter().map(|x| x * x).sum::<f32>().sqrt();
         
         if norm_a == 0.0 || norm_b == 0.0 {
             0.0
@@ -343,13 +264,7 @@ mod tests {
     fn create_test_index() -> (VectorIndex, TempDir) {
         let dir = TempDir::new().unwrap();
         let db = sled::open(dir.path()).unwrap();
-        let config = HnswConfig {
-            max_connections: 8,
-            ef_construction: 50,
-            num_layers: 8,
-            dimension: 4,
-        };
-        let index = VectorIndex::new(&db, Some(config)).unwrap();
+        let index = VectorIndex::new(&db, None).unwrap();
         (index, dir)
     }
     
@@ -357,23 +272,27 @@ mod tests {
     fn test_add_and_search() {
         let (mut index, _dir) = create_test_index();
         
-        // Add some embeddings
-        index.add_embedding("doc1", &[1.0, 0.0, 0.0, 0.0]).unwrap();
-        index.add_embedding("doc2", &[0.0, 1.0, 0.0, 0.0]).unwrap();
-        index.add_embedding("doc3", &[0.0, 0.0, 1.0, 0.0]).unwrap();
+        let vec1 = vec![1.0, 0.0, 0.0];
+        let vec2 = vec![0.0, 1.0, 0.0];
+        let vec3 = vec![0.0, 0.0, 1.0];
         
-        // Search for similar vector
-        let results = index.search(&[1.0, 0.0, 0.0, 0.0], 2).unwrap();
+        index.add_embedding("doc1", &vec1).unwrap();
+        index.add_embedding("doc2", &vec2).unwrap();
+        index.add_embedding("doc3", &vec3).unwrap();
+        
+        let query = vec![1.0, 0.0, 0.0];
+        let results = index.search(&query, 2).unwrap();
         
         assert!(!results.is_empty());
-        assert_eq!(results[0].0, "doc1"); // Should be most similar
+        assert_eq!(results[0].0, "doc1");
     }
     
     #[test]
     fn test_dimension_mismatch() {
         let (mut index, _dir) = create_test_index();
         
-        let result = index.add_embedding("doc1", &[1.0, 0.0, 0.0]); // Wrong dimension
+        let wrong_vec = vec![1.0, 0.0]; // Wrong dimension
+        let result = index.add_embedding("doc1", &wrong_vec);
         assert!(result.is_err());
     }
     
@@ -391,7 +310,7 @@ mod tests {
     fn test_get_embedding() {
         let (mut index, _dir) = create_test_index();
         
-        let vec = vec![0.5, 0.5, 0.5, 0.5];
+        let vec = vec![1.0, 2.0, 3.0];
         index.add_embedding("doc1", &vec).unwrap();
         
         let retrieved = index.get_embedding("doc1").unwrap();

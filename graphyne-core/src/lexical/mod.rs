@@ -45,6 +45,18 @@ struct DocumentStats {
     bucket: String,
 }
 
+impl Default for DocumentStats {
+    fn default() -> Self {
+        Self {
+            doc_id: String::new(),
+            term_frequencies: HashMap::new(),
+            doc_length: 0,
+            collection: String::new(),
+            bucket: String::new(),
+        }
+    }
+}
+
 /// BM25 scoring parameters.
 #[derive(Debug, Clone)]
 pub struct Bm25Params {
@@ -81,7 +93,7 @@ impl LexicalIndex {
         let kv_store = db.open_tree("lexical_kv")?;
         let doc_stats = db.open_tree("lexical_doc_stats")?;
         
-        let total_docs = doc_stats.len();
+        let total_docs = doc_stats.len() as u64;
         
         Ok(Self {
             fst_store,
@@ -140,7 +152,7 @@ impl LexicalIndex {
         let mut all_terms: Vec<String> = if let Some(data) = self.fst_store.get(&key)? {
             // Deserialize existing terms
             let existing: Vec<String> = serde_json::from_slice(&data)
-                .map_err(|e| GraphyneError::SerializationError(e.to_string()))?;
+                .map_err(|e| GraphyneError::Serialization(e))?;
             existing
         } else {
             Vec::new()
@@ -161,20 +173,20 @@ impl LexicalIndex {
         let mut fst_data = Vec::new();
         {
             let mut builder = MapBuilder::new(&mut fst_data)
-                .map_err(|e| GraphyneError::LexicalError(LexicalError::FstError(e.to_string())))?;
+                .map_err(|e| GraphyneError::Lexical(e.to_string()))?;
             
             for (idx, term) in all_terms.iter().enumerate() {
                 builder.insert(term, idx as u64)
-                    .map_err(|e| GraphyneError::LexicalError(LexicalError::FstError(e.to_string())))?;
+                    .map_err(|e| GraphyneError::Lexical(e.to_string()))?;
             }
             
             builder.finish()
-                .map_err(|e| GraphyneError::LexicalError(LexicalError::FstError(e.to_string())))?;
+                .map_err(|e| GraphyneError::Lexical(e.to_string()))?;
         }
         
         // Store FST data and term list
         let term_list_json = serde_json::to_vec(&all_terms)
-            .map_err(|e| GraphyneError::SerializationError(e.to_string()))?;
+            .map_err(|e| GraphyneError::Serialization(e))?;
         
         self.fst_store.insert(key.as_bytes(), term_list_json)?;
         
@@ -184,7 +196,7 @@ impl LexicalIndex {
     /// Push text into the index for a given document.
     pub fn push_text(&mut self, collection: &str, bucket: &str, doc_id: &str, text: &str) -> Result<()> {
         if collection.is_empty() || bucket.is_empty() || doc_id.is_empty() {
-            return Err(GraphyneError::LexicalError(LexicalError::InvalidName(
+            return Err(GraphyneError::Lexical(LexicalError::InvalidName(
                 "Collection, bucket, and doc_id must not be empty".to_string()
             )));
         }
@@ -217,7 +229,7 @@ impl LexicalIndex {
             doc_freqs.insert(doc_id.to_string(), *freq);
             
             let json = serde_json::to_vec(&doc_freqs)
-                .map_err(|e| GraphyneError::SerializationError(e.to_string()))?;
+                .map_err(|e| GraphyneError::Serialization(e))?;
             self.kv_store.insert(term_key.as_bytes(), json)?;
         }
         
@@ -232,10 +244,10 @@ impl LexicalIndex {
         };
         
         let json = serde_json::to_vec(&stats)
-            .map_err(|e| GraphyneError::SerializationError(e.to_string()))?;
+            .map_err(|e| GraphyneError::Serialization(e))?;
         self.doc_stats.insert(doc_key.as_bytes(), json)?;
         
-        self.total_docs = self.doc_stats.len();
+        self.total_docs = self.doc_stats.len() as u64;
         
         Ok(())
     }
@@ -243,7 +255,7 @@ impl LexicalIndex {
     /// Search for documents matching the query using BM25 scoring.
     pub fn search(&self, collection: &str, bucket: &str, query: &str, limit: usize) -> Result<Vec<(String, f32)>> {
         if collection.is_empty() || bucket.is_empty() {
-            return Err(GraphyneError::LexicalError(LexicalError::InvalidName(
+            return Err(GraphyneError::Lexical(LexicalError::InvalidName(
                 "Collection and bucket must not be empty".to_string()
             )));
         }
@@ -291,7 +303,7 @@ impl LexicalIndex {
                         let stats: DocumentStats = serde_json::from_slice(&data)
                             .unwrap_or_default();
                         
-                        let tf = *term_freq as f32;
+                        let tf = term_freq as f32;
                         let doc_len = stats.doc_length as f32;
                         
                         // BM25 formula
@@ -319,7 +331,7 @@ impl LexicalIndex {
         
         if let Some(data) = self.fst_store.get(&key)? {
             let terms: Vec<String> = serde_json::from_slice(&data)
-                .map_err(|e| GraphyneError::SerializationError(e.to_string()))?;
+                .map_err(|e| GraphyneError::Serialization(e))?;
             
             let prefix_lower = prefix.to_lowercase();
             let results: Vec<String> = terms
@@ -340,7 +352,7 @@ impl LexicalIndex {
         
         if let Some(data) = self.fst_store.get(&key)? {
             let terms: Vec<String> = serde_json::from_slice(&data)
-                .map_err(|e| GraphyneError::SerializationError(e.to_string()))?;
+                .map_err(|e| GraphyneError::Serialization(e))?;
             Ok(terms)
         } else {
             Ok(Vec::new())

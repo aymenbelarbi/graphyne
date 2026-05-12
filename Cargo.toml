@@ -5,7 +5,6 @@ members = [
     "graphyne-client",
     "graphyne-cli",
     "graphyne-proto",
-    "graphyne-mcp",
 ]
 
 [workspace.dependencies]

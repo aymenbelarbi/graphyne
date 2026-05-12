@@ -184,18 +184,19 @@ impl GraphRAG {
         
         for result in search_results {
             // The result id should correspond to a node id
-            if self.graph_store.get_node(&result.id)?.is_some() {
-                seed_nodes.insert(result.id, result.score);
+            if self.graph_store.get_node(&result.0)?.is_some() {
+                seed_nodes.insert(result.0, result.1);
             }
         }
         
         // If no results from lexical search, try to find nodes by label match
         if seed_nodes.is_empty() {
-            for node_ref in self.graph_store.graph.node_references() {
-                let node = node_ref.1;
-                if node.label.to_lowercase().contains(&query.to_lowercase()) ||
-                   node.node_type.to_lowercase().contains(&query.to_lowercase()) {
-                    seed_nodes.insert(node.id.clone(), 0.5);
+            for idx in self.graph_store.graph.node_indices() {
+                if let Some(node) = self.graph_store.graph.node_weight(idx) {
+                    if node.label.to_lowercase().contains(&query.to_lowercase()) ||
+                       node.node_type.to_lowercase().contains(&query.to_lowercase()) {
+                        seed_nodes.insert(node.id.clone(), 0.5);
+                    }
                 }
             }
         }

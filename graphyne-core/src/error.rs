@@ -19,6 +19,18 @@ pub enum GraphyneError {
     
     #[error("Serialization error: {0}")]
     Serialization(#[from] serde_json::Error),
+    
+    #[error("Sled database error: {0}")]
+    Sled(#[from] sled::Error),
+    
+    #[error("Lexical index error: {0}")]
+    Lexical(String),
+    
+    #[error("Vector index error: {0}")]
+    Vector(String),
+    
+    #[error("Graph error: {0}")]
+    Graph(String),
 }
 
 pub type Result<T> = std::result::Result<T, GraphyneError>;

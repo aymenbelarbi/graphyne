@@ -254,7 +254,7 @@ message MemorySpace {
   repeated MemoryType memory_types = 2;
   string retention_policy = 3;  // JSON string
   int32 max_entries = 4;
-  string scoring_config = 4;  // JSON string
+  string scoring_config = 5;  // JSON string
 }
 
 message GetMemorySpacesResponse {

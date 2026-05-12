@@ -9,9 +9,8 @@ use graphyne_proto::graphyne::{
     memory_service_client::MemoryServiceClient,
     SearchRequest, PushDocumentRequest, AddEmbeddingRequest, 
     AddNodeRequest, AddEdgeRequest, StoreMemoryRequest,
-    SearchVectorRequest, TraverseGraphRequest, RecallMemoryRequest,
+    RecallMemoryRequest,
 };
-use crate::ClientError;
 use crate::Result;
 
 /// gRPC client for Graphyne services
@@ -104,12 +103,16 @@ impl GraphyneGrpcClient {
         &mut self,
         id: &str,
         node_type: &str,
+        label: &str,
         properties: std::collections::HashMap<String, String>,
+        embedding: Vec<f32>,
     ) -> Result<bool> {
         let request = tonic::Request::new(AddNodeRequest {
             id: id.to_string(),
             node_type: node_type.to_string(),
+            label: label.to_string(),
             properties,
+            embedding,
         });
         
         let response = self.graph_client.add_node(request).await?;
@@ -123,12 +126,14 @@ impl GraphyneGrpcClient {
         to_id: &str,
         edge_type: &str,
         properties: std::collections::HashMap<String, String>,
+        weight: f32,
     ) -> Result<bool> {
         let request = tonic::Request::new(AddEdgeRequest {
             from_id: from_id.to_string(),
             to_id: to_id.to_string(),
             edge_type: edge_type.to_string(),
             properties,
+            weight,
         });
         
         let response = self.graph_client.add_edge(request).await?;
@@ -138,14 +143,20 @@ impl GraphyneGrpcClient {
     /// Store memory
     pub async fn store_memory(
         &mut self,
-        key: &str,
-        value: &str,
+        memory_type: i32,  // MemoryType enum value
+        content: &str,
+        embedding: Vec<f32>,
+        importance: f32,
         metadata: std::collections::HashMap<String, String>,
+        space: &str,
     ) -> Result<bool> {
         let request = tonic::Request::new(StoreMemoryRequest {
-            key: key.to_string(),
-            value: value.to_string(),
+            memory_type: memory_type,
+            content: content.to_string(),
+            embedding,
+            importance,
             metadata,
+            space: space.to_string(),
         });
         
         let response = self.memory_client.store_memory(request).await?;
@@ -155,12 +166,24 @@ impl GraphyneGrpcClient {
     /// Recall memory
     pub async fn recall_memory(
         &mut self,
-        key: &str,
-        query: &str,
+        query_text: &str,
+        embedding: Vec<f32>,
+        memory_types: Vec<i32>,
+        start_time: &str,
+        end_time: &str,
+        min_importance: f32,
+        limit: i32,
+        space: &str,
     ) -> Result<Option<graphyne_proto::graphyne::RecallMemoryResponse>> {
         let request = tonic::Request::new(RecallMemoryRequest {
-            key: key.to_string(),
-            query: query.to_string(),
+            query_text: query_text.to_string(),
+            embedding,
+            memory_types,
+            start_time: start_time.to_string(),
+            end_time: end_time.to_string(),
+            min_importance,
+            limit,
+            space: space.to_string(),
         });
         
         let response = self.memory_client.recall_memory(request).await?;

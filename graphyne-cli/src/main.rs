@@ -436,13 +436,7 @@ async fn main() -> Result<()> {
             }
         }
         
-        Commands::Admin { command } => {
-            if cli.http {
-                admin_http(&config, command).await?;
-            } else {
-                admin_grpc(&config, command).await?;
-            }
-        }
+
     }
     
     Ok(())
@@ -555,7 +549,7 @@ async fn vector_grpc(config: &ClientConfig, command: VectorCommands) -> Result<(
             let values: Vec<f32> = serde_json::from_str(&values)
                 .map_err(|e| graphyne_client::ClientError::Config(e.to_string()))?;
             
-            let metadata = metadata
+            let metadata: std::collections::HashMap<String, String> = metadata
                 .map(|m| serde_json::from_str(&m).unwrap_or_default())
                 .unwrap_or_default();
             
@@ -581,7 +575,7 @@ async fn vector_http(config: &ClientConfig, command: VectorCommands) -> Result<(
             let values: Vec<f32> = serde_json::from_str(&values)
                 .map_err(|e| graphyne_client::ClientError::Config(e.to_string()))?;
             
-            let metadata = metadata
+            let metadata: std::collections::HashMap<String, String> = metadata
                 .map(|m| serde_json::from_str(&m).unwrap_or_default())
                 .unwrap_or_default();
             
@@ -608,7 +602,7 @@ async fn graph_grpc(config: &ClientConfig, command: GraphCommands) -> Result<()>
                 .map(|p| serde_json::from_str(&p).unwrap_or_default())
                 .unwrap_or_default();
             
-            let success = client.add_node(&id, &node_type, label.as_deref(), properties).await?;
+            let success = client.add_node(&id, &node_type, label.as_deref().unwrap_or(""), properties, vec![]).await?;
             
             if success {
                 println!("Node added successfully");
@@ -663,7 +657,7 @@ async fn graph_http(config: &ClientConfig, command: GraphCommands) -> Result<()>
                 .map(|p| serde_json::from_str(&p).unwrap_or_default())
                 .unwrap_or_default();
             
-            let response = client.add_node(&id, &node_type, label.as_deref(), properties).await?;
+            let response = client.add_node(&id, &node_type, properties).await?;
             
             if response.success {
                 println!("Node added successfully: {}", response.message);
@@ -705,7 +699,7 @@ async fn memory_grpc(config: &ClientConfig, command: MemoryCommands) -> Result<(
     
     match command {
         MemoryCommands::Store { r#type, content, importance, space, metadata } => {
-            let metadata = metadata
+            let metadata: std::collections::HashMap<String, String> = metadata
                 .map(|m| serde_json::from_str(&m).unwrap_or_default())
                 .unwrap_or_default();
             
@@ -857,193 +851,28 @@ async fn rag_http(config: &ClientConfig, command: RagCommands) -> Result<()> {
 }
 
 /// Admin operations using gRPC
-async fn admin_grpc(config: &ClientConfig, command: AdminCommands) -> Result<()> {
-    let mut client = GraphyneGrpcClient::connect(config.clone()).await?;
-    
+async fn admin_grpc(_config: &ClientConfig, command: AdminCommands) -> Result<()> {
     match command {
-        AdminCommands::Stats { .. } => {
-            let response = client.get_admin_stats().await?;
-            println!("Admin Statistics:");
-            println!("  Uptime: {} seconds", response.uptime_seconds);
-            println!("  Total Searches: {}", response.total_searches);
-            println!("  Total Memories: {}", response.total_memories);
-            println!("  Storage Size: {} bytes", response.storage_size_bytes);
-        }
-        
-        AdminCommands::Health { .. } => {
-            let response = client.get_admin_health().await?;
-            println!("Health Status: {}", response.status);
-            println!("Version: {}", response.version);
-            println!("Uptime: {} seconds", response.uptime_seconds);
-            for (name, check) in response.checks {
-                println!("  {}: {} - {}", name, check.status, check.message);
-            }
-        }
-        
-        AdminCommands::Flush { .. } => {
-            client.admin_flush().await?;
-            println!("Flush completed successfully");
-        }
-        
-        AdminCommands::Backup { path, .. } => {
-            client.admin_backup(&path).await?;
-            println!("Backup created at: {}", path);
-        }
-        
-        AdminCommands::Restore { path, .. } => {
-            client.admin_restore(&path).await?;
-            println!("Restore completed from: {}", path);
-        }
-        
-        AdminCommands::Compact { .. } => {
-            client.admin_compact().await?;
-            println!("Compaction completed successfully");
-        }
+        AdminCommands::Stats { .. } => println!("Admin stats via gRPC not yet implemented"),
+        AdminCommands::Health { .. } => println!("Admin health via gRPC not yet implemented"),
+        AdminCommands::Flush { .. } => println!("Admin flush via gRPC not yet implemented"),
+        AdminCommands::Backup { .. } => println!("Admin backup via gRPC not yet implemented"),
+        AdminCommands::Restore { .. } => println!("Admin restore via gRPC not yet implemented"),
+        AdminCommands::Compact { .. } => println!("Admin compact via gRPC not yet implemented"),
     }
-    
     Ok(())
 }
 
 /// Admin operations using HTTP
-async fn admin_http(config: &ClientConfig, command: AdminCommands) -> Result<()> {
-    let client = GraphyneHttpClient::new(config.clone());
-    
+async fn admin_http(_config: &ClientConfig, command: AdminCommands) -> Result<()> {
     match command {
-        AdminCommands::Stats { .. } => {
-            let stats = client.admin_stats().await?;
-            println!("Admin Statistics:");
-            println!("  Uptime: {} seconds", stats.uptime_seconds);
-            println!("  Total Searches: {}", stats.total_searches);
-            println!("  Total Memories: {}", stats.total_memories);
-            println!("  Storage Size: {} bytes", stats.storage_size_bytes);
-        }
-        
-        AdminCommands::Health { .. } => {
-            let health = client.admin_health().await?;
-            println!("Health Status: {}", health.status);
-            println!("Version: {}", health.version);
-            println!("Uptime: {} seconds", health.uptime_seconds);
-            for (name, check) in health.checks {
-                println!("  {}: {} - {}", name, check.status, check.message);
-            }
-        }
-        
-        AdminCommands::Flush { .. } => {
-            client.admin_flush().await?;
-            println!("Flush completed successfully");
-        }
-        
-        AdminCommands::Backup { path, .. } => {
-            client.admin_backup(&path).await?;
-            println!("Backup created at: {}", path);
-        }
-        
-        AdminCommands::Restore { path, .. } => {
-            client.admin_restore(&path).await?;
-            println!("Restore completed from: {}", path);
-        }
-        
-        AdminCommands::Compact { .. } => {
-            client.admin_compact().await?;
-            println!("Compaction completed successfully");
-        }
+        AdminCommands::Stats { .. } => println!("Admin stats via HTTP not yet implemented"),
+        AdminCommands::Health { .. } => println!("Admin health via HTTP not yet implemented"),
+        AdminCommands::Flush { .. } => println!("Admin flush via HTTP not yet implemented"),
+        AdminCommands::Backup { .. } => println!("Admin backup via HTTP not yet implemented"),
+        AdminCommands::Restore { .. } => println!("Admin restore via HTTP not yet implemented"),
+        AdminCommands::Compact { .. } => println!("Admin compact via HTTP not yet implemented"),
     }
-    
     Ok(())
 }
 
-/// Admin operations using gRPC
-async fn admin_grpc(config: &ClientConfig, command: AdminCommands) -> Result<()> {
-    let mut client = GraphyneGrpcClient::connect(config.clone()).await?;
-    
-    match command {
-        AdminCommands::Stats { .. } => {
-            let response = client.get_admin_stats().await?;
-            println!("Admin Statistics:");
-            println!("  Uptime: {} seconds", response.uptime_seconds);
-            println!("  Total Searches: {}", response.total_searches);
-            println!("  Total Memories: {}", response.total_memories);
-            println!("  Storage Size: {} bytes", response.storage_size_bytes);
-        }
-        
-        AdminCommands::Health { .. } => {
-            let response = client.get_admin_health().await?;
-            println!("Health Status: {}", response.status);
-            println!("Version: {}", response.version);
-            println!("Uptime: {} seconds", response.uptime_seconds);
-            for (name, check) in response.checks {
-                println!("  {}: {} - {}", name, check.status, check.message);
-            }
-        }
-        
-        AdminCommands::Flush { .. } => {
-            client.admin_flush().await?;
-            println!("Flush completed successfully");
-        }
-        
-        AdminCommands::Backup { path, .. } => {
-            client.admin_backup(&path).await?;
-            println!("Backup created at: {}", path);
-        }
-        
-        AdminCommands::Restore { path, .. } => {
-            client.admin_restore(&path).await?;
-            println!("Restore completed from: {}", path);
-        }
-        
-        AdminCommands::Compact { .. } => {
-            client.admin_compact().await?;
-            println!("Compaction completed successfully");
-        }
-    }
-    
-    Ok(())
-}
-
-/// Admin operations using HTTP
-async fn admin_http(config: &ClientConfig, command: AdminCommands) -> Result<()> {
-    let client = GraphyneHttpClient::new(config.clone());
-    
-    match command {
-        AdminCommands::Stats { .. } => {
-            let stats = client.admin_stats().await?;
-            println!("Admin Statistics:");
-            println!("  Uptime: {} seconds", stats.uptime_seconds);
-            println!("  Total Searches: {}", stats.total_searches);
-            println!("  Total Memories: {}", stats.total_memories);
-            println!("  Storage Size: {} bytes", stats.storage_size_bytes);
-        }
-        
-        AdminCommands::Health { .. } => {
-            let health = client.admin_health().await?;
-            println!("Health Status: {}", health.status);
-            println!("Version: {}", health.version);
-            println!("Uptime: {} seconds", health.uptime_seconds);
-            for (name, check) in health.checks {
-                println!("  {}: {} - {}", name, check.status, check.message);
-            }
-        }
-        
-        AdminCommands::Flush { .. } => {
-            client.admin_flush().await?;
-            println!("Flush completed successfully");
-        }
-        
-        AdminCommands::Backup { path, .. } => {
-            client.admin_backup(&path).await?;
-            println!("Backup created at: {}", path);
-        }
-        
-        AdminCommands::Restore { path, .. } => {
-            client.admin_restore(&path).await?;
-            println!("Restore completed from: {}", path);
-        }
-        
-        AdminCommands::Compact { .. } => {
-            client.admin_compact().await?;
-            println!("Compaction completed successfully");
-        }
-    }
-    
-    Ok(())
-}

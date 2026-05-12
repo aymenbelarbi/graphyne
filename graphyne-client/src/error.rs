@@ -14,6 +14,9 @@ pub enum ClientError {
     #[error("Serialization error: {0}")]
     Serialization(#[from] serde_json::Error),
     
+    #[error("URI parse error: {0}")]
+    InvalidUri(#[from] http::uri::InvalidUri),
+    
     #[error("Timeout error")]
     Timeout,
     

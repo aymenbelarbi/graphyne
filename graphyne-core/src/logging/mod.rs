@@ -1,5 +1,5 @@
 use tracing::{info, warn, error, debug, instrument};
-use tracing_subscriber::{fmt, EnvFilter, layer::SubscriberExt, util::SubscriberInitExt};
+use tracing_subscriber::{fmt, EnvFilter, layer::SubscriberExt, util::SubscriberInitExt, Layer};
 use std::io;
 
 pub fn init_logging(level: &str) -> Result<(), Box<dyn std::error::Error>> {
@@ -53,15 +53,24 @@ macro_rules! log_memory_store {
             "Memory stored"
         );
     };
+    ($memory_id:expr, $space:expr, $importance:expr) => {
+        info!(
+            target: "graphyne::memory",
+            memory_id = %$memory_id,
+            space = %$space,
+            importance = %$importance,
+            "Memory stored"
+        );
+    };
 }
 
 #[macro_export]
 macro_rules! log_memory_recall {
-    ($query:expr, $results:expr) => {
+    ($query:expr, $count:expr) => {
         info!(
             target: "graphyne::memory",
             query = %$query,
-            results = %$results,
+            results = %$count,
             "Memory recalled"
         );
     };
@@ -69,12 +78,11 @@ macro_rules! log_memory_recall {
 
 #[macro_export]
 macro_rules! log_storage_operation {
-    ($operation:expr, $collection:expr, $bucket:expr) => {
-        debug!(
+    ($operation:expr, $success:expr) => {
+        info!(
             target: "graphyne::storage",
             operation = %$operation,
-            collection = %$collection,
-            bucket = %$bucket,
+            success = %$success,
             "Storage operation"
         );
     };
@@ -82,12 +90,12 @@ macro_rules! log_storage_operation {
 
 #[macro_export]
 macro_rules! log_grpc_request {
-    ($method:expr, $request_id:expr) => {
+    ($method:expr, $duration:expr) => {
         info!(
             target: "graphyne::grpc",
             method = %$method,
-            request_id = %$request_id,
-            "gRPC request received"
+            duration_ms = %$duration,
+            "gRPC request"
         );
     };
 }
@@ -101,18 +109,25 @@ macro_rules! log_http_request {
             path = %$path,
             status = %$status,
             duration_ms = %$duration,
-            "HTTP request completed"
+            "HTTP request"
         );
     };
 }
 
 #[macro_export]
 macro_rules! log_error {
-    ($error:expr, $context:expr) => {
+    ($message:expr) => {
         error!(
             target: "graphyne::error",
+            message = %$message,
+            "Error occurred"
+        );
+    };
+    ($message:expr, $error:expr) => {
+        error!(
+            target: "graphyne::error",
+            message = %$message,
             error = %$error,
-            context = %$context,
             "Error occurred"
         );
     };
@@ -120,40 +135,11 @@ macro_rules! log_error {
 
 #[macro_export]
 macro_rules! log_warning {
-    ($message:expr, $context:expr) => {
+    ($message:expr) => {
         warn!(
             target: "graphyne::warning",
             message = %$message,
-            context = %$context,
             "Warning"
         );
     };
-}
-
-/// Span attribute helper for tracing operations
-pub fn trace_search<F, R>(query: &str, f: F) -> R
-where
-    F: FnOnce() -> R,
-{
-    let span = tracing::info_span!("search", query = %query);
-    let _enter = span.enter();
-    f()
-}
-
-pub fn trace_memory_operation<F, R>(operation: &str, memory_id: &str, f: F) -> R
-where
-    F: FnOnce() -> R,
-{
-    let span = tracing::info_span!("memory", operation = %operation, memory_id = %memory_id);
-    let _enter = span.enter();
-    f()
-}
-
-pub fn trace_storage_operation<F, R>(operation: &str, collection: &str, f: F) -> R
-where
-    F: FnOnce() -> R,
-{
-    let span = tracing::debug_span!("storage", operation = %operation, collection = %collection);
-    let _enter = span.enter();
-    f()
 }

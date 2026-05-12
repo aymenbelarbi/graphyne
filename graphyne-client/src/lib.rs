@@ -1,5 +1,5 @@
 //! Graphyne Client SDK
-//! 
+//!
 //! Provides both gRPC and HTTP clients for interacting with Graphyne services.
 
 pub mod grpc;
@@ -7,6 +7,9 @@ pub mod http;
 pub mod error;
 
 pub use error::ClientError;
+pub use error::Result;
+pub use grpc::GraphyneGrpcClient;
+pub use http::GraphyneHttpClient;
 
 use std::time::Duration;
 

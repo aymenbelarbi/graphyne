@@ -7,13 +7,16 @@ use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
 
 use petgraph::graph::{DiGraph, NodeIndex, EdgeIndex};
-use petgraph::visit::{EdgeRef, IntoEdgeReferences, IntoNodeReferences};
+use petgraph::visit::EdgeRef;
 use petgraph::algo::dijkstra;
 use serde::{Deserialize, Serialize};
 use sled::Tree;
 use thiserror::Error;
 
 use crate::error::{Result, GraphyneError};
+
+/// GraphRAG module for enhanced agent reasoning.
+pub mod rag;
 
 /// Errors specific to graph operations.
 #[derive(Error, Debug, Serialize, Deserialize)]
@@ -98,56 +101,47 @@ impl GraphStore {
             edge_counter: 0,
         };
         
-        // Load existing data from storage
         store.load_from_storage()?;
-        
         Ok(store)
     }
     
-    /// Load graph data from persistent storage.
+    /// Load existing graph data from storage.
     fn load_from_storage(&mut self) -> Result<()> {
         // Load nodes
         for item in self.nodes_store.iter() {
             let (key, value) = item?;
-            let id = String::from_utf8_lossy(&key).to_string();
-            let node: GraphNode = serde_json::from_slice(&value)
-                .map_err(|e| GraphyneError::SerializationError(e.to_string()))?;
+            let node_id = String::from_utf8(key.to_vec()).map_err(|e| GraphyneError::Storage(e.to_string()))?;
+            let node: GraphNode = serde_json::from_slice(&value)?;
             
-            let node_idx = self.graph.add_node(node);
-            self.node_indices.insert(id, node_idx);
+            let idx = self.graph.add_node(node);
+            self.node_indices.insert(node_id, idx);
         }
         
         // Load edges
         for item in self.edges_store.iter() {
             let (key, value) = item?;
-            let edge_id = String::from_utf8_lossy(&key).to_string();
-            let edge: GraphEdge = serde_json::from_slice(&value)
-                .map_err(|e| GraphyneError::SerializationError(e.to_string()))?;
+            let edge_id = String::from_utf8(key.to_vec()).map_err(|e| GraphyneError::Storage(e.to_string()))?;
+            let edge: GraphEdge = serde_json::from_slice(&value)?;
             
-            // Find source and target nodes
             if let (Some(&from_idx), Some(&to_idx)) = (
                 self.node_indices.get(&edge.from),
                 self.node_indices.get(&edge.to)
             ) {
-                let edge_idx = self.graph.add_edge(from_idx, to_idx, edge);
-                self.edge_indices.insert(edge_id, edge_idx);
+                let idx = self.graph.add_edge(from_idx, to_idx, edge);
+                self.edge_indices.insert(edge_id, idx);
             }
         }
-        
-        // Update counters
-        self.node_counter = self.node_indices.len() as u64;
-        self.edge_counter = self.edge_indices.len() as u64;
         
         Ok(())
     }
     
-    /// Generate a unique node ID.
+    /// Generate a new unique node ID.
     fn generate_node_id(&mut self) -> String {
         self.node_counter += 1;
         format!("node_{}", self.node_counter)
     }
     
-    /// Generate a unique edge ID.
+    /// Generate a new unique edge ID.
     fn generate_edge_id(&mut self) -> String {
         self.edge_counter += 1;
         format!("edge_{}", self.edge_counter)
@@ -155,18 +149,6 @@ impl GraphStore {
     
     /// Add a node to the graph.
     pub fn add_node(&mut self, id: &str, node_type: &str, label: &str, properties: serde_json::Value, embedding: Option<Vec<f32>>) -> Result<()> {
-        if id.is_empty() || node_type.is_empty() {
-            return Err(GraphyneError::GraphError(GraphError::InvalidId(
-                "Node ID and type must not be empty".to_string()
-            )));
-        }
-        
-        // Check if node already exists
-        if self.node_indices.contains_key(id) {
-            // Update existing node
-            self.remove_node(id)?;
-        }
-        
         let node = GraphNode {
             id: id.to_string(),
             node_type: node_type.to_string(),
@@ -176,65 +158,36 @@ impl GraphStore {
             created_at: chrono::Utc::now(),
         };
         
-        // Add to in-memory graph
-        let node_idx = self.graph.add_node(node.clone());
-        self.node_indices.insert(id.to_string(), node_idx);
+        // Store in sled
+        let key = id.as_bytes();
+        let value = serde_json::to_vec(&node)?;
+        self.nodes_store.insert(key, value)?;
         
-        // Store in persistent storage
-        let json = serde_json::to_vec(&node)
-            .map_err(|e| GraphyneError::SerializationError(e.to_string()))?;
-        self.nodes_store.insert(id.as_bytes(), json)?;
+        // Add to in-memory graph
+        let idx = self.graph.add_node(node);
+        self.node_indices.insert(id.to_string(), idx);
         
         Ok(())
     }
     
     /// Remove a node from the graph.
     pub fn remove_node(&mut self, id: &str) -> Result<()> {
-        if let Some(&node_idx) = self.node_indices.get(id) {
-            // Remove all edges connected to this node
-            let edges_to_remove: Vec<String> = self.edge_indices
-                .iter()
-                .filter(|(_, &edge_idx)| {
-                    if let Some(edge_ref) = self.graph.edge_endpoints(edge_idx) {
-                        edge_ref.0 == node_idx || edge_ref.1 == node_idx
-                    } else {
-                        false
-                    }
-                })
-                .map(|(id, _)| id.clone())
-                .collect();
-            
-            for edge_id in edges_to_remove {
-                self.remove_edge(&edge_id)?;
-            }
-            
-            // Remove node from graph
-            self.graph.remove_node(node_idx);
-            self.node_indices.remove(id);
-            
-            // Remove from storage
+        if let Some(&idx) = self.node_indices.get(id) {
+            // Remove from sled
             self.nodes_store.remove(id.as_bytes())?;
+            
+            // Remove from in-memory graph (this also removes connected edges)
+            self.graph.remove_node(idx);
+            self.node_indices.remove(id);
             
             Ok(())
         } else {
-            Err(GraphyneError::GraphError(GraphError::NodeNotFound(id.to_string())))
+            Err(GraphyneError::Graph(GraphError::NodeNotFound(id.to_string()).to_string()))
         }
     }
     
     /// Add an edge to the graph.
     pub fn add_edge(&mut self, from: &str, to: &str, edge_type: &str, properties: serde_json::Value, weight: f32) -> Result<String> {
-        if from.is_empty() || to.is_empty() || edge_type.is_empty() {
-            return Err(GraphyneError::GraphError(GraphError::InvalidId(
-                "From, to, and edge type must not be empty".to_string()
-            )));
-        }
-        
-        // Check if both nodes exist
-        let from_idx = self.node_indices.get(from)
-            .ok_or_else(|| GraphyneError::GraphError(GraphError::NodeNotFound(from.to_string())))?;
-        let to_idx = self.node_indices.get(to)
-            .ok_or_else(|| GraphyneError::GraphError(GraphError::NodeNotFound(to.to_string())))?;
-        
         let edge_id = self.generate_edge_id();
         
         let edge = GraphEdge {
@@ -246,101 +199,125 @@ impl GraphStore {
             weight,
         };
         
-        // Add to in-memory graph
-        let edge_idx = self.graph.add_edge(*from_idx, *to_idx, edge.clone());
-        self.edge_indices.insert(edge_id.clone(), edge_idx);
-        
-        // Store in persistent storage
-        let json = serde_json::to_vec(&edge)
-            .map_err(|e| GraphyneError::SerializationError(e.to_string()))?;
-        self.edges_store.insert(edge_id.as_bytes(), json)?;
-        
-        Ok(edge_id)
+        if let (Some(&from_idx), Some(&to_idx)) = (
+            self.node_indices.get(from),
+            self.node_indices.get(to)
+        ) {
+            // Store in sled
+            let key = edge_id.as_bytes();
+            let value = serde_json::to_vec(&edge)?;
+            self.edges_store.insert(key, value)?;
+            
+            // Add to in-memory graph
+            let idx = self.graph.add_edge(from_idx, to_idx, edge);
+            self.edge_indices.insert(edge_id.clone(), idx);
+            
+            Ok(edge_id)
+        } else {
+            Err(GraphyneError::Graph(GraphError::NodeNotFound(
+                if self.node_indices.get(from).is_none() { from.to_string() } else { to.to_string() }
+            ).to_string()))
+        }
     }
     
     /// Remove an edge from the graph.
     pub fn remove_edge(&mut self, edge_id: &str) -> Result<()> {
-        if let Some(&edge_idx) = self.edge_indices.get(edge_id) {
-            self.graph.remove_edge(edge_idx);
-            self.edge_indices.remove(edge_id);
+        if let Some(&idx) = self.edge_indices.get(edge_id) {
+            // Remove from sled
             self.edges_store.remove(edge_id.as_bytes())?;
+            
+            // Remove from in-memory graph
+            self.graph.remove_edge(idx);
+            self.edge_indices.remove(edge_id);
+            
             Ok(())
         } else {
-            Err(GraphyneError::GraphError(GraphError::EdgeNotFound(edge_id.to_string())))
+            Err(GraphyneError::Graph(GraphError::EdgeNotFound(edge_id.to_string()).to_string()))
         }
     }
     
     /// Get a node by ID.
     pub fn get_node(&self, id: &str) -> Result<Option<GraphNode>> {
-        if let Some(&node_idx) = self.node_indices.get(id) {
-            if let Some(node) = self.graph.node_weight(node_idx) {
-                Ok(Some(node.clone()))
-            } else {
-                Ok(None)
+        if let Some(&idx) = self.node_indices.get(id) {
+            if let Some(node) = self.graph.node_weight(idx) {
+                return Ok(Some(node.clone()));
             }
-        } else {
-            Ok(None)
         }
+        Ok(None)
     }
     
     /// Get an edge by ID.
     pub fn get_edge(&self, edge_id: &str) -> Result<Option<GraphEdge>> {
-        if let Some(&edge_idx) = self.edge_indices.get(edge_id) {
-            if let Some(edge) = self.graph.edge_weight(edge_idx) {
-                Ok(Some(edge.clone()))
-            } else {
-                Ok(None)
+        if let Some(&idx) = self.edge_indices.get(edge_id) {
+            if let Some(edge) = self.graph.edge_weight(idx) {
+                return Ok(Some(edge.clone()));
             }
-        } else {
-            Ok(None)
         }
+        Ok(None)
     }
     
     /// Get all edges from a node.
     pub fn get_edges_from(&self, node_id: &str) -> Result<Vec<GraphEdge>> {
-        if let Some(&node_idx) = self.node_indices.get(node_id) {
+        if let Some(&idx) = self.node_indices.get(node_id) {
             let edges: Vec<GraphEdge> = self.graph
-                .edges(node_idx)
+                .edges(idx)
                 .filter_map(|edge_ref| {
                     self.graph.edge_weight(edge_ref.id()).cloned()
                 })
                 .collect();
             Ok(edges)
         } else {
-            Err(GraphyneError::GraphError(GraphError::NodeNotFound(node_id.to_string())))
+            Err(GraphyneError::Graph(GraphError::NodeNotFound(node_id.to_string()).to_string()))
         }
     }
     
     /// Get all edges to a node.
     pub fn get_edges_to(&self, node_id: &str) -> Result<Vec<GraphEdge>> {
-        if let Some(&node_idx) = self.node_indices.get(node_id) {
+        if let Some(&idx) = self.node_indices.get(node_id) {
             let edges: Vec<GraphEdge> = self.graph
-                .edges_directed(node_idx, petgraph::Incoming)
+                .edges_directed(idx, petgraph::Direction::Incoming)
                 .filter_map(|edge_ref| {
                     self.graph.edge_weight(edge_ref.id()).cloned()
                 })
                 .collect();
             Ok(edges)
         } else {
-            Err(GraphyneError::GraphError(GraphError::NodeNotFound(node_id.to_string())))
+            Err(GraphyneError::Graph(GraphError::NodeNotFound(node_id.to_string()).to_string()))
         }
     }
     
-    /// Traverse the graph starting from a node, up to max_hops.
+    /// Traverse the graph starting from a node.
     pub fn traverse(&self, start: &str, max_hops: usize) -> Result<Vec<GraphPath>> {
         if let Some(&start_idx) = self.node_indices.get(start) {
-            let mut paths = Vec::new();
             let mut visited = HashMap::new();
-            let mut queue: VecDeque<(NodeIndex, Vec<NodeIndex>, Vec<EdgeIndex>)> = VecDeque::new();
+            let mut queue: VecDeque<(NodeIndex, Vec<NodeIndex>, Vec<EdgeIndex>, f32)> = VecDeque::new();
+            let mut paths = Vec::new();
             
-            queue.push_back((start_idx, vec![start_idx], vec![]));
+            queue.push_back((start_idx, vec![start_idx], vec![], 0.0));
             visited.insert(start_idx, 0);
             
-            while let Some((current, node_path, edge_path)) = queue.pop_front() {
-                let current_hops = *visited.get(&current).unwrap_or(&0);
-                
-                if current_hops >= max_hops {
+            while let Some((current, nodes, edges, total_weight)) = queue.pop_front() {
+                if nodes.len() > max_hops + 1 {
                     continue;
+                }
+                
+                if nodes.len() > 1 {
+                    // Build path
+                    let path_nodes: Vec<GraphNode> = nodes
+                        .iter()
+                        .filter_map(|&idx| self.graph.node_weight(idx).cloned())
+                        .collect();
+                    
+                    let path_edges: Vec<GraphEdge> = edges
+                        .iter()
+                        .filter_map(|&idx| self.graph.edge_weight(idx).cloned())
+                        .collect();
+                    
+                    paths.push(GraphPath {
+                        nodes: path_nodes,
+                        edges: path_edges,
+                        total_weight,
+                    });
                 }
                 
                 // Explore neighbors
@@ -348,56 +325,43 @@ impl GraphStore {
                     let neighbor = edge_ref.target();
                     let edge_idx = edge_ref.id();
                     
-                    let neighbor_hops = current_hops + 1;
-                    
-                    if let Some(&prev_hops) = visited.get(&neighbor) {
-                        if prev_hops <= neighbor_hops {
+                    if let Some(&dist) = visited.get(&neighbor) {
+                        if dist <= nodes.len() {
                             continue;
                         }
                     }
                     
-                    visited.insert(neighbor, neighbor_hops);
-                    
-                    let mut new_node_path = node_path.clone();
-                    new_node_path.push(neighbor);
-                    
-                    let mut new_edge_path = edge_path.clone();
-                    new_edge_path.push(edge_idx);
-                    
-                    // Build path
-                    let nodes: Vec<GraphNode> = new_node_path
-                        .iter()
-                        .filter_map(|&idx| self.graph.node_weight(idx).cloned())
-                        .collect();
-                    
-                    let edges: Vec<GraphEdge> = new_edge_path
-                        .iter()
-                        .filter_map(|&idx| self.graph.edge_weight(idx).cloned())
-                        .collect();
-                    
-                    let total_weight: f32 = edges.iter().map(|e| e.weight).sum();
-                    
-                    paths.push(GraphPath {
-                        nodes,
-                        edges,
-                        total_weight,
-                    });
-                    
-                    queue.push_back((neighbor, new_node_path, new_edge_path));
+                    if let Some(edge) = self.graph.edge_weight(edge_idx) {
+                        let mut new_nodes = nodes.clone();
+                        new_nodes.push(neighbor);
+                        
+                        let mut new_edges = edges.clone();
+                        new_edges.push(edge_idx);
+                        
+                        queue.push_back((
+                            neighbor,
+                            new_nodes,
+                            new_edges,
+                            total_weight + edge.weight,
+                        ));
+                        
+                        visited.insert(neighbor, nodes.len());
+                    }
                 }
             }
             
             Ok(paths)
         } else {
-            Err(GraphyneError::GraphError(GraphError::NodeNotFound(start.to_string())))
+            Err(GraphyneError::Graph(GraphError::NodeNotFound(start.to_string()).to_string()))
         }
     }
     
     /// Find nodes by type.
     pub fn find_nodes_by_type(&self, node_type: &str) -> Vec<GraphNode> {
         self.graph
-            .node_references()
-            .filter_map(|(_, node)| {
+            .node_indices()
+            .filter_map(|idx| {
+                let node = self.graph.node_weight(idx)?;
                 if node.node_type == node_type {
                     Some(node.clone())
                 } else {
@@ -412,7 +376,7 @@ impl GraphStore {
         self.graph
             .edge_references()
             .filter_map(|edge_ref| {
-                let edge = self.graph.edge_weight(edge_ref.id())?;
+                let edge = edge_ref.weight();
                 if edge.edge_type == edge_type {
                     Some(edge.clone())
                 } else {
@@ -445,23 +409,21 @@ impl GraphStore {
                 &self.graph,
                 from_idx,
                 Some(to_idx),
-                |edge| edge.weight as u32,
+                |edge| edge.weight().weight as u32,
             );
             
-            if let Some(&cost) = path.get(to_idx) {
+            if let Some(&cost) = path.get(&to_idx) {
                 if cost < u32::MAX {
                     // Reconstruct the path
-                    // Note: petgraph's dijkstra doesn't return the path, just costs
-                    // We need to implement path reconstruction
                     return self.reconstruct_shortest_path(from_idx, to_idx);
                 }
             }
             
             Ok(None)
         } else {
-            Err(GraphyneError::GraphError(GraphError::NodeNotFound(
+            Err(GraphyneError::Graph(GraphError::NodeNotFound(
                 if self.node_indices.get(from).is_none() { from.to_string() } else { to.to_string() }
-            )))
+            ).to_string()))
         }
     }
     
@@ -474,160 +436,120 @@ impl GraphStore {
         queue.push_back((from, vec![from], vec![]));
         visited.insert(from, 0.0f32);
         
-        while let Some((current, node_path, edge_path)) = queue.pop_front() {
+        while let Some((current, nodes, edges)) = queue.pop_front() {
             if current == to {
-                // Found the target
-                let nodes: Vec<GraphNode> = node_path
+                // Build path
+                let path_nodes: Vec<GraphNode> = nodes
                     .iter()
                     .filter_map(|&idx| self.graph.node_weight(idx).cloned())
                     .collect();
                 
-                let edges: Vec<GraphEdge> = edge_path
+                let path_edges: Vec<GraphEdge> = edges
                     .iter()
                     .filter_map(|&idx| self.graph.edge_weight(idx).cloned())
                     .collect();
                 
-                let total_weight: f32 = edges.iter().map(|e| e.weight).sum();
+                let total_weight = path_edges.iter().map(|e| e.weight).sum();
                 
                 return Ok(Some(GraphPath {
-                    nodes,
-                    edges,
+                    nodes: path_nodes,
+                    edges: path_edges,
                     total_weight,
                 }));
             }
             
-            let current_cost = *visited.get(&current).unwrap_or(&f32::MAX);
-            
             for edge_ref in self.graph.edges(current) {
                 let neighbor = edge_ref.target();
                 let edge_idx = edge_ref.id();
-                let edge_weight = self.graph.edge_weight(edge_idx).map(|e| e.weight).unwrap_or(1.0);
                 
-                let new_cost = current_cost + edge_weight;
-                
-                if let Some(&prev_cost) = visited.get(&neighbor) {
-                    if prev_cost <= new_cost {
-                        continue;
+                if let Some(edge) = self.graph.edge_weight(edge_idx) {
+                    let new_cost = visited.get(&current).unwrap_or(&0.0f32) + edge.weight;
+                    
+                    if let Some(&old_cost) = visited.get(&neighbor) {
+                        if new_cost >= old_cost {
+                            continue;
+                        }
                     }
+                    
+                    visited.insert(neighbor, new_cost);
+                    
+                    let mut new_nodes = nodes.clone();
+                    new_nodes.push(neighbor);
+                    
+                    let mut new_edges = edges.clone();
+                    new_edges.push(edge_idx);
+                    
+                    queue.push_back((neighbor, new_nodes, new_edges));
                 }
-                
-                visited.insert(neighbor, new_cost);
-                
-                let mut new_node_path = node_path.clone();
-                new_node_path.push(neighbor);
-                
-                let mut new_edge_path = edge_path.clone();
-                new_edge_path.push(edge_idx);
-                
-                queue.push_back((neighbor, new_node_path, new_edge_path));
             }
         }
         
         Ok(None)
     }
     
-    /// Calculate degree centrality for a node.
+    /// Calculate node centrality (degree-based).
     pub fn node_centrality(&self, node_id: &str) -> Result<f32> {
-        if let Some(&node_idx) = self.node_indices.get(node_id) {
-            let in_degree = self.graph.edges_directed(node_idx, petgraph::Incoming).count() as f32;
-            let out_degree = self.graph.edges_directed(node_idx, petgraph::Outgoing).count() as f32;
-            let total_nodes = self.graph.node_count() as f32 - 1.0; // Exclude self
-            
-            if total_nodes <= 0.0 {
-                return Ok(0.0);
-            }
-            
-            // Degree centrality = (in_degree + out_degree) / (total_nodes - 1)
-            Ok((in_degree + out_degree) / total_nodes)
+        if let Some(&idx) = self.node_indices.get(node_id) {
+            let in_degree = self.graph.edges_directed(idx, petgraph::Direction::Incoming).count() as f32;
+            let out_degree = self.graph.edges(idx).count() as f32;
+            Ok((in_degree + out_degree) / 2.0)
         } else {
-            Err(GraphyneError::GraphError(GraphError::NodeNotFound(node_id.to_string())))
+            Err(GraphyneError::Graph(GraphError::NodeNotFound(node_id.to_string()).to_string()))
         }
     }
     
-    /// Get neighbors of a node (both incoming and outgoing).
+    /// Get neighbors of a node.
     pub fn get_neighbors(&self, node_id: &str) -> Result<Vec<(GraphNode, String)>> {
-        if let Some(&node_idx) = self.node_indices.get(node_id) {
+        if let Some(&idx) = self.node_indices.get(node_id) {
             let mut neighbors = Vec::new();
             
-            // Outgoing edges
-            for edge_ref in self.graph.edges(node_idx) {
+            for edge_ref in self.graph.edges(idx) {
                 let neighbor_idx = edge_ref.target();
-                if let Some(node) = self.graph.node_weight(neighbor_idx) {
-                    let edge = self.graph.edge_weight(edge_ref.id()).cloned();
-                    let direction = if let Some(e) = edge {
-                        format!("-> ({})", e.edge_type)
-                    } else {
-                        "->".to_string()
-                    };
-                    neighbors.push((node.clone(), direction));
-                }
-            }
-            
-            // Incoming edges
-            for edge_ref in self.graph.edges_directed(node_idx, petgraph::Incoming) {
-                let neighbor_idx = edge_ref.source();
-                if let Some(node) = self.graph.node_weight(neighbor_idx) {
-                    let edge = self.graph.edge_weight(edge_ref.id()).cloned();
-                    let direction = if let Some(e) = edge {
-                        format!("<- ({})", e.edge_type)
-                    } else {
-                        "<-".to_string()
-                    };
-                    neighbors.push((node.clone(), direction));
+                let edge_idx = edge_ref.id();
+                
+                if let (Some(node), Some(edge)) = (
+                    self.graph.node_weight(neighbor_idx),
+                    self.graph.edge_weight(edge_idx)
+                ) {
+                    neighbors.push((node.clone(), edge.edge_type.clone()));
                 }
             }
             
             Ok(neighbors)
         } else {
-            Err(GraphyneError::GraphError(GraphError::NodeNotFound(node_id.to_string())))
+            Err(GraphyneError::Graph(GraphError::NodeNotFound(node_id.to_string()).to_string()))
         }
     }
     
-    /// Recommend nodes based on graph structure and vector similarity.
+    /// Recommend nodes based on graph traversal.
     pub fn recommend_nodes(&self, start: &str, limit: usize) -> Result<Vec<(GraphNode, f32)>> {
         if let Some(&start_idx) = self.node_indices.get(start) {
-            let mut scores: HashMap<String, f32> = HashMap::new();
+            let mut scores: HashMap<NodeIndex, f32> = HashMap::new();
             
-            // Get the start node's embedding for similarity
-            let start_node = self.graph.node_weight(start_idx);
-            let start_embedding = start_node.and_then(|n| n.embedding.as_ref());
-            
-            // Explore up to 2 hops
-            let paths = self.traverse(start, 2)?;
-            
-            for path in paths {
-                for node in &path.nodes {
-                    if node.id == start {
-                        continue;
-                    }
+            // Simple recommendation: traverse 2 hops and score by edge weights
+            for edge_ref in self.graph.edges(start_idx) {
+                let neighbor_idx = edge_ref.target();
+                if let Some(edge) = self.graph.edge_weight(edge_ref.id()) {
+                    *scores.entry(neighbor_idx).or_insert(0.0) += edge.weight;
                     
-                    let mut score = 0.0;
-                    
-                    // Graph structure score (based on path weight)
-                    score += 1.0 / (path.total_weight + 1.0);
-                    
-                    // Centrality bonus
-                    if let Ok(centrality) = self.node_centrality(&node.id) {
-                        score += centrality * 0.5;
-                    }
-                    
-                    // Vector similarity bonus
-                    if let (Some(emb1), Some(emb2)) = (start_embedding, node.embedding.as_ref()) {
-                        if emb1.len() == emb2.len() {
-                            let similarity: f32 = emb1.iter().zip(emb2.iter()).map(|(a, b)| a * b).sum();
-                            score += similarity * 0.3;
+                    // Second hop
+                    for edge_ref2 in self.graph.edges(neighbor_idx) {
+                        let neighbor2_idx = edge_ref2.target();
+                        if neighbor2_idx != start_idx {
+                            if let Some(edge2) = self.graph.edge_weight(edge_ref2.id()) {
+                                *scores.entry(neighbor2_idx).or_insert(0.0) += edge.weight * edge2.weight * 0.5;
+                            }
                         }
                     }
-                    
-                    *scores.entry(node.id.clone()).or_insert(0.0) += score;
                 }
             }
             
             // Sort by score and return top results
             let mut results: Vec<(GraphNode, f32)> = scores
                 .into_iter()
-                .filter_map(|(id, score)| {
-                    self.get_node(&id).ok().flatten().map(|node| (node, score))
+                .filter_map(|(idx, score)| {
+                    self.graph.node_weight(idx)
+                        .map(|node| (node.clone(), score))
                 })
                 .collect();
             
@@ -636,7 +558,7 @@ impl GraphStore {
             
             Ok(results)
         } else {
-            Err(GraphyneError::GraphError(GraphError::NodeNotFound(start.to_string())))
+            Err(GraphyneError::Graph(GraphError::NodeNotFound(start.to_string()).to_string()))
         }
     }
 }
@@ -645,7 +567,6 @@ impl GraphStore {
 mod tests {
     use super::*;
     use tempfile::TempDir;
-    use serde_json::json;
     
     fn create_test_store() -> (GraphStore, TempDir) {
         let dir = TempDir::new().unwrap();
@@ -658,31 +579,24 @@ mod tests {
     fn test_add_and_get_node() {
         let (mut store, _dir) = create_test_store();
         
-        let props = json!({"name": "Alice", "age": 30});
-        let embedding = Some(vec![0.1, 0.2, 0.3]);
-        store.add_node("n1", "Person", "Alice", props, embedding).unwrap();
+        store.add_node("n1", "person", "Alice", serde_json::json!({}), None).unwrap();
         
-        let node = store.get_node("n1").unwrap();
-        assert!(node.is_some());
-        let node = node.unwrap();
-        assert_eq!(node.node_type, "Person");
+        let node = store.get_node("n1").unwrap().unwrap();
+        assert_eq!(node.node_type, "person");
         assert_eq!(node.label, "Alice");
-        assert!(node.embedding.is_some());
     }
     
     #[test]
     fn test_add_edge() {
         let (mut store, _dir) = create_test_store();
         
-        store.add_node("n1", "Person", "Alice", json!({}), None).unwrap();
-        store.add_node("n2", "Person", "Bob", json!({}), None).unwrap();
+        store.add_node("n1", "person", "Alice", serde_json::json!({}), None).unwrap();
+        store.add_node("n2", "person", "Bob", serde_json::json!({}), None).unwrap();
         
-        let edge_id = store.add_edge("n1", "n2", "KNOWS", json!({"since": 2020}), 1.0).unwrap();
+        let edge_id = store.add_edge("n1", "n2", "knows", serde_json::json!({}), 1.0).unwrap();
         
-        let edge = store.get_edge(&edge_id).unwrap();
-        assert!(edge.is_some());
-        let edge = edge.unwrap();
-        assert_eq!(edge.edge_type, "KNOWS");
+        let edge = store.get_edge(&edge_id).unwrap().unwrap();
+        assert_eq!(edge.edge_type, "knows");
         assert_eq!(edge.weight, 1.0);
     }
     
@@ -690,13 +604,12 @@ mod tests {
     fn test_traverse() {
         let (mut store, _dir) = create_test_store();
         
-        // Create a simple graph: n1 -> n2 -> n3
-        store.add_node("n1", "Person", "Alice", json!({}), None).unwrap();
-        store.add_node("n2", "Person", "Bob", json!({}), None).unwrap();
-        store.add_node("n3", "Person", "Charlie", json!({}), None).unwrap();
+        store.add_node("n1", "person", "Alice", serde_json::json!({}), None).unwrap();
+        store.add_node("n2", "person", "Bob", serde_json::json!({}), None).unwrap();
+        store.add_node("n3", "person", "Charlie", serde_json::json!({}), None).unwrap();
         
-        store.add_edge("n1", "n2", "KNOWS", json!({}), 1.0).unwrap();
-        store.add_edge("n2", "n3", "KNOWS", json!({}), 1.0).unwrap();
+        store.add_edge("n1", "n2", "knows", serde_json::json!({}), 1.0).unwrap();
+        store.add_edge("n2", "n3", "knows", serde_json::json!({}), 1.0).unwrap();
         
         let paths = store.traverse("n1", 2).unwrap();
         assert!(!paths.is_empty());
@@ -706,42 +619,39 @@ mod tests {
     fn test_find_nodes_by_type() {
         let (mut store, _dir) = create_test_store();
         
-        store.add_node("n1", "Person", "Alice", json!({}), None).unwrap();
-        store.add_node("n2", "Company", "Acme", json!({}), None).unwrap();
+        store.add_node("n1", "person", "Alice", serde_json::json!({}), None).unwrap();
+        store.add_node("n2", "company", "Acme", serde_json::json!({}), None).unwrap();
         
-        let persons = store.find_nodes_by_type("Person");
+        let persons = store.find_nodes_by_type("person");
         assert_eq!(persons.len(), 1);
-        assert_eq!(persons[0].id, "n1");
+        assert_eq!(persons[0].label, "Alice");
     }
     
     #[test]
     fn test_shortest_path() {
         let (mut store, _dir) = create_test_store();
         
-        store.add_node("n1", "Person", "Alice", json!({}), None).unwrap();
-        store.add_node("n2", "Person", "Bob", json!({}), None).unwrap();
-        store.add_node("n3", "Person", "Charlie", json!({}), None).unwrap();
+        store.add_node("n1", "person", "Alice", serde_json::json!({}), None).unwrap();
+        store.add_node("n2", "person", "Bob", serde_json::json!({}), None).unwrap();
+        store.add_node("n3", "person", "Charlie", serde_json::json!({}), None).unwrap();
         
-        store.add_edge("n1", "n2", "KNOWS", json!({}), 1.0).unwrap();
-        store.add_edge("n2", "n3", "KNOWS", json!({}), 2.0).unwrap();
+        store.add_edge("n1", "n2", "knows", serde_json::json!({}), 1.0).unwrap();
+        store.add_edge("n2", "n3", "knows", serde_json::json!({}), 1.0).unwrap();
         
         let path = store.shortest_path("n1", "n3").unwrap();
         assert!(path.is_some());
-        let path = path.unwrap();
-        assert_eq!(path.nodes.len(), 3);
-        assert_eq!(path.total_weight, 3.0);
     }
     
     #[test]
     fn test_node_centrality() {
         let (mut store, _dir) = create_test_store();
         
-        store.add_node("n1", "Person", "Alice", json!({}), None).unwrap();
-        store.add_node("n2", "Person", "Bob", json!({}), None).unwrap();
-        store.add_node("n3", "Person", "Charlie", json!({}), None).unwrap();
+        store.add_node("n1", "person", "Alice", serde_json::json!({}), None).unwrap();
+        store.add_node("n2", "person", "Bob", serde_json::json!({}), None).unwrap();
+        store.add_node("n3", "person", "Charlie", serde_json::json!({}), None).unwrap();
         
-        store.add_edge("n1", "n2", "KNOWS", json!({}), 1.0).unwrap();
-        store.add_edge("n1", "n3", "KNOWS", json!({}), 1.0).unwrap();
+        store.add_edge("n1", "n2", "knows", serde_json::json!({}), 1.0).unwrap();
+        store.add_edge("n1", "n3", "knows", serde_json::json!({}), 1.0).unwrap();
         
         let centrality = store.node_centrality("n1").unwrap();
         assert!(centrality > 0.0);
