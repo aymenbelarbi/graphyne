@@ -8,4 +8,4 @@ members = [
 ]
 
 [workspace.dependencies]
-# Core dependencies will be added as crates are created
+tempfile = "3"
