@@ -10,7 +10,7 @@ web-ui = []
 [dependencies]
 graphyne-core = { path = "../graphyne-core" }
 graphyne-proto = { path = "../graphyne-proto" }
-tonic = "0.10"
+tonic = "0.14"
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "signal"] }
 axum = "0.7"
 tower = "0.4"
