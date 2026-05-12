@@ -408,37 +408,53 @@ async fn recall_memory_handler(
     };
     
     let store = state.memory_store.lock().await;
-    match store.recall(&query) {
-        Ok(results) => {
-            let memories: Vec<MemoryResponse> = results.iter().map(|(entry, _)| MemoryResponse {
-                id: entry.id.clone(),
-                memory_type: format!("{:?}", entry.memory_type),
-                content: entry.content.clone(),
-                importance: entry.importance,
-                created_at: entry.created_at.to_rfc3339(),
-                last_accessed: entry.last_accessed.to_rfc3339(),
-                access_count: entry.access_count,
-                metadata: if let serde_json::Value::Object(map) = &entry.metadata {
-                    map.iter().map(|(k, v)| (k.clone(), v.clone())).collect()
-                } else {
-                    HashMap::new()
-                },
-            }).collect();
-            
-            let scores: Vec<f32> = results.iter().map(|(_, score)| *score).collect();
-            
-            Json(serde_json::json!({
-                "success": true,
-                "message": format!("Found {} memories", memories.len()),
-                "memories": memories,
-                "scores": scores
-            }))
+
+    // If no query provided, list all memories
+    let memories_with_scores = if query.query_text.is_none() && query.embedding.is_none() {
+        match store.list_memories(None, query.limit) {
+            Ok(entries) => entries.into_iter().map(|e| (e, 1.0)).collect(),
+            Err(e) => {
+                return Json(serde_json::json!({
+                    "success": false,
+                    "message": format!("Failed to list memories: {}", e)
+                }));
+            }
         }
-        Err(e) => Json(serde_json::json!({
-            "success": false,
-            "message": format!("Failed to recall memories: {}", e)
-        })),
-    }
+    } else {
+        match store.recall(&query) {
+            Ok(results) => results,
+            Err(e) => {
+                return Json(serde_json::json!({
+                    "success": false,
+                    "message": format!("Failed to recall memories: {}", e)
+                }));
+            }
+        }
+    };
+
+    let memories: Vec<MemoryResponse> = memories_with_scores.iter().map(|(entry, _)| MemoryResponse {
+        id: entry.id.clone(),
+        memory_type: format!("{:?}", entry.memory_type),
+        content: entry.content.clone(),
+        importance: entry.importance,
+        created_at: entry.created_at.to_rfc3339(),
+        last_accessed: entry.last_accessed.to_rfc3339(),
+        access_count: entry.access_count,
+        metadata: if let serde_json::Value::Object(map) = &entry.metadata {
+            map.iter().map(|(k, v)| (k.clone(), v.clone())).collect()
+        } else {
+            HashMap::new()
+        },
+    }).collect();
+
+    let scores: Vec<f32> = memories_with_scores.iter().map(|(_, score)| *score).collect();
+
+    Json(serde_json::json!({
+        "success": true,
+        "message": format!("Found {} memories", memories.len()),
+        "memories": memories,
+        "scores": scores
+    }))
 }
 
 /// List memory spaces handler
