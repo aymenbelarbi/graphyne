@@ -60,15 +60,17 @@ fn test_scorer_normalization() {
     };
     let scorer = HybridScorer::new(config).unwrap();
 
-    // Provide scores with very different ranges
+    // Provide scores with different ranges — doc1 is better in both sources
+    // (higher lexical score, lower vector distance) so it should rank first
+    // after normalization.
     let lexical = vec![
-        ("doc1".to_string(), 100.0),
-        ("doc2".to_string(), 1.0),
+        ("doc1".to_string(), 10.0),
+        ("doc2".to_string(), 2.0),
     ];
 
     let vector = vec![
-        ("doc1".to_string(), 0.9),
-        ("doc2".to_string(), 0.1),
+        ("doc1".to_string(), 0.2),
+        ("doc2".to_string(), 0.8),
     ];
 
     let results = scorer.combine(lexical, vector, vec![]);
@@ -87,7 +89,9 @@ fn test_scorer_normalization() {
     assert_eq!(results.len(), 2);
     assert!(results[0].1 >= results[1].1, "Results should be sorted descending");
 
-    // doc1 should appear before doc2 (it has higher raw scores in both sources)
+    // doc1 should appear before doc2: after normalization both sources give
+    // doc1=1.0, doc2=0.0 (lexical) and doc1=1.0, doc2=0.0 (vector inverted+normalized),
+    // so doc1 combined = 1.0*0.5 + 1.0*0.5 = 1.0, doc2 = 0.0
     assert_eq!(results[0].0, "doc1", "doc1 should be ranked first");
     assert_eq!(results[1].0, "doc2", "doc2 should be ranked second");
 }
