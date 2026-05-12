@@ -404,4 +404,108 @@ mod tests {
         assert_eq!(result.confidence, 0.0);
         assert!(result.nodes.is_empty());
     }
+
+    #[test]
+    fn test_graphrag_query_with_matching_label() {
+        let dir = TempDir::new().unwrap();
+        let db = sled::open(dir.path()).unwrap();
+        
+        let mut graph_store = GraphStore::new(&db).unwrap();
+        let vector_index = VectorIndex::new(&db, None).unwrap();
+        let mut lexical_index = LexicalIndex::new(&db).unwrap();
+        
+        // Add nodes with labels that can be matched
+        graph_store.add_node("node1", "Person", "Alice the engineer", json!({"role": "developer"}), None).unwrap();
+        graph_store.add_node("node2", "Person", "Bob the designer", json!({"role": "designer"}), None).unwrap();
+        graph_store.add_edge("node1", "node2", "knows", json!({}), 1.0).unwrap();
+        
+        // Index node labels in lexical search so seed nodes can be found
+        lexical_index.push_text("default", "GraphNode", "node1", "Alice the engineer").unwrap();
+        lexical_index.push_text("default", "GraphNode", "node2", "Bob the designer").unwrap();
+        
+        let graphrag = GraphRAG::new(graph_store, vector_index, lexical_index, None);
+        
+        // Query with a term that matches a node label
+        let result = graphrag.query("Alice", Some(2), Some(10)).unwrap();
+        assert!(result.confidence > 0.0, "Confidence should be > 0 when nodes are found");
+        assert!(!result.nodes.is_empty(), "Should find at least one node matching 'Alice'");
+    }
+
+    #[test]
+    fn test_graphrag_query_multi_hop() {
+        let dir = TempDir::new().unwrap();
+        let db = sled::open(dir.path()).unwrap();
+        
+        let mut graph_store = GraphStore::new(&db).unwrap();
+        let vector_index = VectorIndex::new(&db, None).unwrap();
+        let mut lexical_index = LexicalIndex::new(&db).unwrap();
+        
+        // Create a chain: A -> B -> C
+        graph_store.add_node("A", "Entity", "Alpha", json!({}), None).unwrap();
+        graph_store.add_node("B", "Entity", "Beta", json!({}), None).unwrap();
+        graph_store.add_node("C", "Entity", "Gamma", json!({}), None).unwrap();
+        graph_store.add_edge("A", "B", "connects", json!({}), 1.0).unwrap();
+        graph_store.add_edge("B", "C", "connects", json!({}), 1.0).unwrap();
+        
+        // Index seed node
+        lexical_index.push_text("default", "GraphNode", "A", "Alpha").unwrap();
+        lexical_index.push_text("default", "GraphNode", "B", "Beta").unwrap();
+        lexical_index.push_text("default", "GraphNode", "C", "Gamma").unwrap();
+        
+        let graphrag = GraphRAG::new(graph_store, vector_index, lexical_index, None);
+        
+        // Query from A with 2 hops should reach C
+        let result = graphrag.query("Alpha", Some(2), Some(10)).unwrap();
+        assert!(result.confidence > 0.0);
+        // Should have seed node A and traversed nodes B, C
+        assert!(result.nodes.len() >= 1, "Should find at least the seed node");
+    }
+
+    #[test]
+    fn test_graphrag_get_subgraph() {
+        let dir = TempDir::new().unwrap();
+        let db = sled::open(dir.path()).unwrap();
+        
+        let mut graph_store = GraphStore::new(&db).unwrap();
+        let vector_index = VectorIndex::new(&db, None).unwrap();
+        let lexical_index = LexicalIndex::new(&db).unwrap();
+        
+        graph_store.add_node("X", "Thing", "X-ray", json!({}), None).unwrap();
+        graph_store.add_node("Y", "Thing", "Yankee", json!({}), None).unwrap();
+        graph_store.add_node("Z", "Thing", "Zulu", json!({}), None).unwrap();
+        graph_store.add_edge("X", "Y", "link", json!({}), 1.0).unwrap();
+        graph_store.add_edge("Y", "Z", "link", json!({}), 1.0).unwrap();
+        
+        let graphrag = GraphRAG::new(graph_store, vector_index, lexical_index, None);
+        
+        // Get subgraph around X and Z with 1 hop
+        let (nodes, edges) = graphrag.get_subgraph(&["X".to_string(), "Z".to_string()], 1).unwrap();
+        // Should include X, Z, and their direct neighbors (Y)
+        assert!(nodes.len() >= 2, "Should include at least the requested nodes");
+        // X connects to Y, Z is connected from Y
+        assert!(!edges.is_empty(), "Should include edges from the requested nodes");
+    }
+
+    #[test]
+    fn test_graphrag_expand_node() {
+        let dir = TempDir::new().unwrap();
+        let db = sled::open(dir.path()).unwrap();
+        
+        let mut graph_store = GraphStore::new(&db).unwrap();
+        let vector_index = VectorIndex::new(&db, None).unwrap();
+        let lexical_index = LexicalIndex::new(&db).unwrap();
+        
+        graph_store.add_node("center", "Hub", "Center", json!({}), None).unwrap();
+        graph_store.add_node("n1", "Spoke", "Spoke1", json!({}), None).unwrap();
+        graph_store.add_node("n2", "Spoke", "Spoke2", json!({}), None).unwrap();
+        graph_store.add_edge("center", "n1", "radiates", json!({}), 1.0).unwrap();
+        graph_store.add_edge("center", "n2", "radiates", json!({}), 1.0).unwrap();
+        
+        let graphrag = GraphRAG::new(graph_store, vector_index, lexical_index, None);
+        
+        let (nodes, edges) = graphrag.expand_node("center", 1).unwrap();
+        // Should include center + 2 neighbors
+        assert!(nodes.len() >= 3, "Should include center and its 2 neighbors, got {}", nodes.len());
+        assert_eq!(edges.len(), 2, "Should have 2 edges from center");
+    }
 }

@@ -210,4 +210,112 @@ mod tests {
         let result = packer.pack(memories);
         assert!(packer.estimate_tokens(&result) <= 10);
     }
+
+    #[test]
+    fn test_pack_empty_memories() {
+        let packer = ContextPacker::new(4096);
+        let memories: Vec<(MemoryEntry, f32)> = vec![];
+        let result = packer.pack(memories);
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn test_pack_single_memory_exceeding_budget() {
+        let packer = ContextPacker::new(5); // Very small budget
+        let memories = vec![
+            create_test_entry("This is a long text that exceeds the small token budget", 0.9),
+        ];
+        let result = packer.pack(memories);
+        // Should still produce output (truncated) since remaining_tokens > 10 check
+        // With budget of 5, remaining_tokens is 5 which is NOT > 10, so it breaks without adding
+        // The result should be empty since the first entry can't fit
+        assert!(packer.estimate_tokens(&result) <= 5);
+    }
+
+    #[test]
+    fn test_pack_exact_budget_boundary() {
+        // Create a memory that fits exactly
+        let entry = MemoryEntry {
+            id: "exact-id".to_string(),
+            memory_type: MemoryType::Semantic,
+            content: "exact".to_string(),
+            embedding: None,
+            metadata: serde_json::Value::Null,
+            created_at: Utc::now(),
+            last_accessed: Utc::now(),
+            access_count: 0,
+            importance: 0.5,
+        };
+        let text = format!("[Semantic] (score: 0.500, importance: 0.50)\nexact\n");
+        let exact_tokens = (text.len() as f32 / 4.0).ceil() as usize;
+
+        let packer = ContextPacker::new(exact_tokens);
+        let memories = vec![(entry, 0.5)];
+        let result = packer.pack(memories);
+        assert!(!result.is_empty());
+        assert!(packer.estimate_tokens(&result) <= exact_tokens);
+    }
+
+    #[test]
+    fn test_truncate_head_strategy() {
+        let mut packer = ContextPacker::new(100);
+        packer.truncation_strategy = TruncationStrategy::Head;
+        let text = "ABCDEFGHIJ"; // 10 chars
+        let result = packer.truncate_to_tokens(text, 2); // 2 tokens = 8 chars
+        assert_eq!(result.len(), 11); // "...CDEFGHIJ" = 3 + 8 = 11
+        assert!(result.starts_with("..."));
+        assert!(result.ends_with("HIJ"));
+    }
+
+    #[test]
+    fn test_truncate_tail_strategy() {
+        let mut packer = ContextPacker::new(100);
+        packer.truncation_strategy = TruncationStrategy::Tail;
+        let text = "ABCDEFGHIJ"; // 10 chars
+        let result = packer.truncate_to_tokens(text, 2); // 2 tokens = 8 chars
+        assert_eq!(result.len(), 11); // "ABCDEFGH..." = 8 + 3 = 11
+        assert!(result.starts_with("ABCD"));
+        assert!(result.ends_with("..."));
+    }
+
+    #[test]
+    fn test_truncate_middle_strategy() {
+        let mut packer = ContextPacker::new(100);
+        packer.truncation_strategy = TruncationStrategy::Middle;
+        let text = "ABCDEFGHIJ"; // 10 chars
+        let result = packer.truncate_to_tokens(text, 2); // 2 tokens = 8 chars
+        assert!(result.contains("..."));
+        assert!(result.starts_with("AB"));
+        assert!(result.ends_with("IJ"));
+    }
+
+    #[test]
+    fn test_estimate_tokens_empty() {
+        let packer = ContextPacker::new(4096);
+        assert_eq!(packer.estimate_tokens(""), 0);
+    }
+
+    #[test]
+    fn test_set_max_tokens() {
+        let mut packer = ContextPacker::new(4096);
+        assert_eq!(packer.max_tokens(), 4096);
+        packer.set_max_tokens(2048);
+        assert_eq!(packer.max_tokens(), 2048);
+    }
+
+    #[test]
+    fn test_set_chars_per_token() {
+        let mut packer = ContextPacker::new(4096);
+        packer.set_chars_per_token(2.0);
+        // 10 chars / 2.0 = 5 tokens
+        assert_eq!(packer.estimate_tokens("HelloWorld"), 5);
+    }
+
+    #[test]
+    fn test_set_chars_per_token_clamps_to_minimum() {
+        let mut packer = ContextPacker::new(4096);
+        packer.set_chars_per_token(0.5); // Should clamp to 1.0
+        // 5 chars / 1.0 = 5 tokens
+        assert_eq!(packer.estimate_tokens("Hello"), 5);
+    }
 }

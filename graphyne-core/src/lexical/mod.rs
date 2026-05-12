@@ -409,4 +409,59 @@ mod tests {
         
         assert!(terms.contains(&"hello".to_string()));
     }
+
+    #[test]
+    fn test_push_empty_collection() {
+        let (mut index, _dir) = create_test_index();
+        let result = index.push_text("", "bucket1", "doc1", "hello world");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_push_empty_bucket() {
+        let (mut index, _dir) = create_test_index();
+        let result = index.push_text("coll1", "", "doc1", "hello world");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_push_empty_doc_id() {
+        let (mut index, _dir) = create_test_index();
+        let result = index.push_text("coll1", "bucket1", "", "hello world");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_search_empty_collection() {
+        let (index, _dir) = create_test_index();
+        let result = index.search("", "bucket1", "hello", 10);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_search_empty_bucket() {
+        let (index, _dir) = create_test_index();
+        let result = index.search("coll1", "", "hello", 10);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_prefix_search_nonexistent_collection() {
+        let (index, _dir) = create_test_index();
+        let terms = index.prefix_search("nonexistent", "bucket1", "he", 10).unwrap();
+        assert!(terms.is_empty());
+    }
+
+    #[test]
+    fn test_tokenize_empty() {
+        let tokens = LexicalIndex::tokenize("");
+        assert!(tokens.is_empty());
+    }
+
+    #[test]
+    fn test_tokenize_single_char() {
+        // Single character words should be filtered out
+        let tokens = LexicalIndex::tokenize("a b c");
+        assert!(tokens.is_empty());
+    }
 }

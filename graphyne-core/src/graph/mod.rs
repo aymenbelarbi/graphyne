@@ -664,4 +664,119 @@ mod tests {
         let centrality = store.node_centrality("n1").unwrap();
         assert!(centrality > 0.0);
     }
+
+    #[test]
+    fn test_recommend_nodes() {
+        let (mut store, _dir) = create_test_store();
+        
+        store.add_node("n1", "person", "Alice", serde_json::json!({}), None).unwrap();
+        store.add_node("n2", "person", "Bob", serde_json::json!({}), None).unwrap();
+        store.add_node("n3", "person", "Charlie", serde_json::json!({}), None).unwrap();
+        store.add_node("n4", "person", "Diana", serde_json::json!({}), None).unwrap();
+        
+        store.add_edge("n1", "n2", "knows", serde_json::json!({}), 1.0).unwrap();
+        store.add_edge("n1", "n3", "knows", serde_json::json!({}), 0.5).unwrap();
+        store.add_edge("n2", "n4", "knows", serde_json::json!({}), 0.8).unwrap();
+        
+        let recommendations = store.recommend_nodes("n1", 10).unwrap();
+        // Should recommend n2 (direct, weight 1.0) and n3 (direct, weight 0.5)
+        // and n4 (2-hop through n2, weight 1.0 * 0.8 * 0.5 = 0.4)
+        assert!(!recommendations.is_empty());
+        // n2 should be top recommendation (highest direct edge weight)
+        assert_eq!(recommendations[0].0.id, "n2");
+    }
+
+    #[test]
+    fn test_shortest_path_no_path() {
+        let (mut store, _dir) = create_test_store();
+        
+        store.add_node("n1", "person", "Alice", serde_json::json!({}), None).unwrap();
+        store.add_node("n2", "person", "Bob", serde_json::json!({}), None).unwrap();
+        store.add_node("n3", "person", "Charlie", serde_json::json!({}), None).unwrap();
+        store.add_node("n4", "person", "Diana", serde_json::json!({}), None).unwrap();
+        
+        // n1 -> n2, n3 -> n4 (two disconnected components)
+        store.add_edge("n1", "n2", "knows", serde_json::json!({}), 1.0).unwrap();
+        store.add_edge("n3", "n4", "knows", serde_json::json!({}), 1.0).unwrap();
+        
+        let path = store.shortest_path("n1", "n4").unwrap();
+        assert!(path.is_none(), "Should return None for disconnected nodes");
+    }
+
+    #[test]
+    fn test_node_centrality_isolated() {
+        let (mut store, _dir) = create_test_store();
+        
+        store.add_node("n1", "person", "Alice", serde_json::json!({}), None).unwrap();
+        // n1 has no edges
+        
+        let centrality = store.node_centrality("n1").unwrap();
+        assert_eq!(centrality, 0.0);
+    }
+
+    #[test]
+    fn test_get_neighbors() {
+        let (mut store, _dir) = create_test_store();
+        
+        store.add_node("n1", "person", "Alice", serde_json::json!({}), None).unwrap();
+        store.add_node("n2", "person", "Bob", serde_json::json!({}), None).unwrap();
+        store.add_node("n3", "person", "Charlie", serde_json::json!({}), None).unwrap();
+        
+        store.add_edge("n1", "n2", "knows", serde_json::json!({}), 1.0).unwrap();
+        store.add_edge("n1", "n3", "works_with", serde_json::json!({}), 0.8).unwrap();
+        
+        let neighbors = store.get_neighbors("n1").unwrap();
+        assert_eq!(neighbors.len(), 2);
+        
+        let neighbor_ids: Vec<String> = neighbors.iter().map(|(n, _)| n.id.clone()).collect();
+        assert!(neighbor_ids.contains(&"n2".to_string()));
+        assert!(neighbor_ids.contains(&"n3".to_string()));
+        
+        // Check edge types
+        let edge_types: Vec<String> = neighbors.iter().map(|(_, t)| t.clone()).collect();
+        assert!(edge_types.contains(&"knows".to_string()));
+        assert!(edge_types.contains(&"works_with".to_string()));
+    }
+
+    #[test]
+    fn test_node_count_empty() {
+        let (store, _dir) = create_test_store();
+        assert_eq!(store.node_count(), 0);
+    }
+
+    #[test]
+    fn test_edge_count_empty() {
+        let (store, _dir) = create_test_store();
+        assert_eq!(store.edge_count(), 0);
+    }
+
+    #[test]
+    fn test_find_edges_by_type() {
+        let (mut store, _dir) = create_test_store();
+        
+        store.add_node("n1", "person", "Alice", serde_json::json!({}), None).unwrap();
+        store.add_node("n2", "person", "Bob", serde_json::json!({}), None).unwrap();
+        store.add_node("n3", "company", "Acme", serde_json::json!({}), None).unwrap();
+        
+        store.add_edge("n1", "n2", "knows", serde_json::json!({}), 1.0).unwrap();
+        store.add_edge("n1", "n3", "works_at", serde_json::json!({}), 1.0).unwrap();
+        
+        let knows_edges = store.find_edges_by_type("knows");
+        assert_eq!(knows_edges.len(), 1);
+        assert_eq!(knows_edges[0].edge_type, "knows");
+        
+        let works_at_edges = store.find_edges_by_type("works_at");
+        assert_eq!(works_at_edges.len(), 1);
+    }
+
+    #[test]
+    fn test_iter_nodes() {
+        let (mut store, _dir) = create_test_store();
+        
+        store.add_node("n1", "person", "Alice", serde_json::json!({}), None).unwrap();
+        store.add_node("n2", "person", "Bob", serde_json::json!({}), None).unwrap();
+        
+        let nodes = store.iter_nodes();
+        assert_eq!(nodes.len(), 2);
+    }
 }

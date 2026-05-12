@@ -344,4 +344,93 @@ mod tests {
         assert!(scores[0].1 > scores[1].1);
         assert!(scores[1].1 > scores[2].1);
     }
+
+    #[test]
+    fn test_combine_all_empty() {
+        let scorer = HybridScorer::default();
+        let results = scorer.combine(vec![], vec![], vec![]);
+        assert!(results.is_empty());
+    }
+
+    #[test]
+    fn test_combine_only_lexical() {
+        let scorer = HybridScorer::default();
+        let lexical = vec![
+            ("doc1".to_string(), 2.5),
+            ("doc2".to_string(), 1.8),
+        ];
+        let results = scorer.combine(lexical, vec![], vec![]);
+        assert_eq!(results.len(), 2);
+        // Results should be sorted by score descending
+        assert!(results[0].1 >= results[1].1);
+    }
+
+    #[test]
+    fn test_combine_only_vector() {
+        let scorer = HybridScorer::default();
+        let vector = vec![
+            ("doc1".to_string(), 0.3),
+            ("doc2".to_string(), 0.1),
+        ];
+        let results = scorer.combine(vec![], vector, vec![]);
+        assert_eq!(results.len(), 2);
+    }
+
+    #[test]
+    fn test_combine_only_graph() {
+        let scorer = HybridScorer::default();
+        let graph = vec![
+            ("doc1".to_string(), 0.9),
+            ("doc2".to_string(), 0.5),
+        ];
+        let results = scorer.combine(vec![], vec![], graph);
+        assert_eq!(results.len(), 2);
+    }
+
+    #[test]
+    fn test_normalize_scores_single() {
+        let mut scores = vec![
+            ("doc1".to_string(), 5.0),
+        ];
+        HybridScorer::normalize_scores(&mut scores);
+        // Single score should normalize to 1.0
+        assert_eq!(scores[0].1, 1.0);
+    }
+
+    #[test]
+    fn test_normalize_scores_identical() {
+        let mut scores = vec![
+            ("doc1".to_string(), 3.0),
+            ("doc2".to_string(), 3.0),
+            ("doc3".to_string(), 3.0),
+        ];
+        HybridScorer::normalize_scores(&mut scores);
+        // All identical scores should be set to 1.0
+        for (_, score) in &scores {
+            assert_eq!(*score, 1.0);
+        }
+    }
+
+    #[test]
+    fn test_invert_scores_zero_distance() {
+        let mut scores = vec![
+            ("doc1".to_string(), 0.0),
+        ];
+        HybridScorer::invert_scores(&mut scores);
+        // Zero distance should give score of 1.0
+        assert_eq!(scores[0].1, 1.0);
+    }
+
+    #[test]
+    fn test_set_config_invalid() {
+        let mut scorer = HybridScorer::default();
+        let invalid_config = HybridScorerConfig {
+            lexical_weight: 1.5,
+            vector_weight: 0.0,
+            graph_weight: 0.0,
+            normalize: true,
+            min_score: None,
+        };
+        assert!(scorer.set_config(invalid_config).is_err());
+    }
 }

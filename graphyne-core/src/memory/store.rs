@@ -290,7 +290,7 @@ impl MemoryStore {
 
         // Lexical search
         if let Some(ref query_text) = query.query_text {
-            let search_results = self.lexical_index.search(&self.default_space, "", query_text, query.limit * 2)?;
+            let search_results = self.lexical_index.search(&self.default_space, "Working", query_text, query.limit * 2)?;
             for (id, score) in search_results {
                 if let Some(entry) = self.get_memory_by_id(&id)? {
                     let normalized_score = 1.0 / (1.0 + score); // Convert BM25 to 0-1 range
@@ -446,4 +446,143 @@ pub struct MemoryUpdate {
     pub importance: Option<f32>,
     pub metadata: Option<serde_json::Value>,
     pub embedding: Option<Vec<f32>>,
+}
+
+#[cfg(test)]
+mod store_integration_tests {
+    use super::*;
+    use tempfile::TempDir;
+    use crate::memory::types::{MemoryEntry, MemoryType};
+
+    fn create_test_store() -> (MemoryStore, TempDir) {
+        let dir = TempDir::new().unwrap();
+        let db = sled::open(dir.path()).unwrap();
+        let store = MemoryStore::new(db).unwrap();
+        (store, dir)
+    }
+
+    fn make_entry(content: &str) -> MemoryEntry {
+        MemoryEntry::new(MemoryType::Semantic, content.to_string(), 0.5)
+    }
+
+    #[test]
+    fn test_store_memory_nonexistent_space() {
+        let (mut store, _dir) = create_test_store();
+        let entry = make_entry("test content");
+        let result = store.store_memory(entry, Some("nonexistent"));
+        assert!(result.is_err());
+        let err_str = format!("{}", result.unwrap_err());
+        assert!(err_str.contains("not found"), "Expected 'not found' error, got: {}", err_str);
+    }
+
+    #[test]
+    fn test_get_memory_nonexistent() {
+        let (mut store, _dir) = create_test_store();
+        let result = store.get_memory("nonexistent-id").unwrap();
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_update_memory_not_found() {
+        let (mut store, _dir) = create_test_store();
+        let updates = MemoryUpdate {
+            content: Some("new content".to_string()),
+            ..Default::default()
+        };
+        let result = store.update_memory("nonexistent-id", updates);
+        assert!(result.is_err());
+        let err_str = format!("{}", result.unwrap_err());
+        assert!(err_str.contains("not found"), "Expected 'not found' error, got: {}", err_str);
+    }
+
+    #[test]
+    fn test_delete_memory_not_found() {
+        let (mut store, _dir) = create_test_store();
+        let result = store.delete_memory("nonexistent-id");
+        assert!(result.is_err());
+        let err_str = format!("{}", result.unwrap_err());
+        assert!(err_str.contains("not found"), "Expected 'not found' error, got: {}", err_str);
+    }
+
+    #[test]
+    fn test_recall_empty_query_no_memories() {
+        let (mut store, _dir) = create_test_store();
+        // First store a memory so the lexical index has data
+        let entry = make_entry("some stored content");
+        store.store_memory(entry, None).unwrap();
+        
+        let query = MemoryQuery {
+            query_text: Some("".to_string()),
+            limit: 10,
+            ..Default::default()
+        };
+        // Empty query text tokenizes to nothing, so lexical search returns empty
+        let results = store.recall(&query).unwrap();
+        assert!(results.is_empty());
+    }
+
+    #[test]
+    fn test_recall_no_matching_documents() {
+        let (mut store, _dir) = create_test_store();
+        // First store a memory so the lexical index is populated
+        let entry = make_entry("some stored content");
+        store.store_memory(entry, None).unwrap();
+        
+        let query = MemoryQuery {
+            query_text: Some("zzzznonexistentxxxx".to_string()),
+            limit: 10,
+            ..Default::default()
+        };
+        // Query with no matching documents should return empty results
+        let results = store.recall(&query).unwrap();
+        assert!(results.is_empty());
+    }
+
+    #[test]
+    fn test_list_memories_empty_store() {
+        let (store, _dir) = create_test_store();
+        let results = store.list_memories(None, 100).unwrap();
+        assert!(results.is_empty());
+    }
+
+    #[test]
+    fn test_apply_retention_empty_store() {
+        let (mut store, _dir) = create_test_store();
+        let deleted = store.apply_retention("default").unwrap();
+        assert_eq!(deleted, 0);
+    }
+
+    #[test]
+    fn test_store_memory_with_graph_creates_edges() {
+        let (mut store, _dir) = create_test_store();
+        let entry = make_entry("test memory with relationships");
+        let relationships = vec![
+            ("entity1".to_string(), "relates_to".to_string(), "entity2".to_string()),
+            ("entity2".to_string(), "connected_to".to_string(), "entity3".to_string()),
+        ];
+        let id = store.store_memory_with_graph(entry, relationships).unwrap();
+
+        // Verify the memory was stored
+        let retrieved = store.get_memory(&id).unwrap();
+        assert!(retrieved.is_some());
+
+        // Verify graph nodes were created for the entities
+        let node1 = store.graph_store.get_node("entity1").unwrap();
+        assert!(node1.is_some());
+        let node2 = store.graph_store.get_node("entity2").unwrap();
+        assert!(node2.is_some());
+        let node3 = store.graph_store.get_node("entity3").unwrap();
+        assert!(node3.is_some());
+
+        // Verify edges were created
+        let edges_from_1 = store.graph_store.get_edges_from("entity1").unwrap();
+        assert_eq!(edges_from_1.len(), 1);
+        assert_eq!(edges_from_1[0].edge_type, "relates_to");
+        assert_eq!(edges_from_1[0].to, "entity2");
+
+        let edges_from_2 = store.graph_store.get_edges_from("entity2").unwrap();
+        assert_eq!(edges_from_2.len(), 1);
+        assert_eq!(edges_from_2[0].edge_type, "connected_to");
+        assert_eq!(edges_from_2[0].to, "entity3");
+    }
 }

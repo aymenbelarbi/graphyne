@@ -324,4 +324,87 @@ mod tests {
         assert!(retrieved.is_some());
         assert_eq!(retrieved.unwrap(), vec);
     }
+
+    #[test]
+    fn test_add_embedding_wrong_dimension() {
+        let (mut index, _dir) = create_test_index();
+        // Index expects dimension 3, provide 5
+        let wrong_vec = vec![1.0, 0.0, 0.0, 0.0, 0.0];
+        let result = index.add_embedding("doc1", &wrong_vec);
+        assert!(result.is_err());
+        let err_str = format!("{}", result.unwrap_err());
+        assert!(err_str.contains("Dimension mismatch") || err_str.contains("dimension"),
+            "Expected dimension mismatch error, got: {}", err_str);
+    }
+
+    #[test]
+    fn test_remove_embedding() {
+        let (mut index, _dir) = create_test_index();
+        let vec = vec![1.0, 2.0, 3.0];
+        index.add_embedding("doc1", &vec).unwrap();
+        
+        // Verify it exists
+        assert!(index.get_embedding("doc1").unwrap().is_some());
+        
+        // Remove it
+        index.remove_embedding("doc1").unwrap();
+        
+        // Verify it's gone from sled
+        assert!(index.get_embedding("doc1").unwrap().is_none());
+        
+        // Verify needs_rebuild flag is set
+        assert!(index.needs_rebuild());
+    }
+
+    #[test]
+    fn test_remove_embedding_not_found() {
+        let (mut index, _dir) = create_test_index();
+        // Removing a non-existent embedding should not error
+        let result = index.remove_embedding("nonexistent");
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_get_embedding_nonexistent() {
+        let (index, _dir) = create_test_index();
+        let result = index.get_embedding("nonexistent").unwrap();
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_cosine_similarity_orthogonal() {
+        let a = vec![1.0, 0.0, 0.0];
+        let b = vec![0.0, 1.0, 0.0];
+        assert_eq!(VectorIndex::cosine_similarity(&a, &b), 0.0);
+    }
+
+    #[test]
+    fn test_cosine_similarity_opposite() {
+        let a = vec![1.0, 0.0, 0.0];
+        let b = vec![-1.0, 0.0, 0.0];
+        let sim = VectorIndex::cosine_similarity(&a, &b);
+        assert!(sim < 0.0, "Opposite vectors should have negative similarity, got {}", sim);
+    }
+
+    #[test]
+    fn test_cosine_similarity_zero_vector() {
+        let a = vec![0.0, 0.0, 0.0];
+        let b = vec![1.0, 2.0, 3.0];
+        assert_eq!(VectorIndex::cosine_similarity(&a, &b), 0.0);
+    }
+
+    #[test]
+    fn test_maybe_rebuild() {
+        let (mut index, _dir) = create_test_index();
+        let vec = vec![1.0, 0.0, 0.0];
+        index.add_embedding("doc1", &vec).unwrap();
+        
+        // Remove to trigger needs_rebuild
+        index.remove_embedding("doc1").unwrap();
+        assert!(index.needs_rebuild());
+        
+        // Rebuild
+        index.maybe_rebuild().unwrap();
+        assert!(!index.needs_rebuild());
+    }
 }
