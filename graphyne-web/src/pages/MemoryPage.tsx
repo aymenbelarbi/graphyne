@@ -1,11 +1,9 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Badge } from '@/components/ui/badge'
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 
 interface Memory {
   id: string
@@ -24,7 +22,7 @@ export default function MemoryPage() {
 
   const fetchMemories = async () => {
     try {
-      const response = await fetch('http://localhost:8080/v1/memory/recall?type=${memoryType}')
+      const response = await fetch(`http://localhost:8080/v1/memory/recall?type=${memoryType}`)
       if (!response.ok) {
         throw new Error('Failed to fetch memories')
       }
@@ -127,38 +125,25 @@ export default function MemoryPage() {
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Type</TableHead>
-                <TableHead>Content</TableHead>
-                <TableHead>Timestamp</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {memories.length === 0 ? (
-                <TableRow>
-                  <TableCell colSpan={3} className="text-center text-muted-foreground">
-                    No memories found.
-                  </TableCell>
-                </TableRow>
-              ) : (
-                memories.map((memory) => (
-                  <TableRow key={memory.id}>
-                    <TableCell>
-                      <Badge variant="outline">{memory.type}</Badge>
-                    </TableCell>
-                    <TableCell className="max-w-md truncate">
-                      {memory.content}
-                    </TableCell>
-                    <TableCell className="text-muted-foreground">
+          {memories.length === 0 ? (
+            <p className="text-center text-muted-foreground py-8">
+              No memories found.
+            </p>
+          ) : (
+            <div className="space-y-3">
+              {memories.map((memory) => (
+                <div key={memory.id} className="flex items-start gap-3 p-3 rounded-lg border">
+                  <Badge variant="outline" className="mt-0.5">{memory.type}</Badge>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm truncate">{memory.content}</p>
+                    <p className="text-xs text-muted-foreground mt-1">
                       {new Date(memory.timestamp * 1000).toLocaleString()}
-                    </TableCell>
-                  </TableRow>
-                ))
-              )}
-            </TableBody>
-          </Table>
+                    </p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
         </CardContent>
       </Card>
     </div>
