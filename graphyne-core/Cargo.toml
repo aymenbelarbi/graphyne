@@ -27,7 +27,7 @@ tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
 
 # Optional: candle for embeddings
 candle-core = { version = "0.3", optional = true }
-candle-nn = { version = "0.3", optional = true }
+candle-nn = { version = "0.10", optional = true }
 
 [dev-dependencies]
 tempfile = { workspace = true }
