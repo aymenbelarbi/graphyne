@@ -13,7 +13,7 @@ pub mod scoring;
 
 pub use types::{MemoryType, MemoryEntry, MemorySpace, ScoringConfig};
 pub use retention::RetentionPolicy;
-pub use store::MemoryStore;
+pub use store::{MemoryStore, MemoryUpdate};
 pub use context::ContextPacker;
 pub use scoring::MemoryScorer;
 

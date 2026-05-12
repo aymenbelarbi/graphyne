@@ -45,19 +45,24 @@ impl MemoryStore {
             default_space,
         })
     }
-    
+
     /// Initialize GraphRAG for enhanced memory recall.
     pub fn init_graph_rag(&mut self) -> Result<()> {
+        // Reconstruct the components since they don't implement Clone
+        let graph_store = GraphStore::new(&self.db)?;
+        let vector_index = VectorIndex::new(&self.db, None)?;
+        let lexical_index = LexicalIndex::new(&self.db)?;
+        
         let graph_rag = GraphRAG::new(
-            self.graph_store.clone(),
-            self.vector_index.clone(),
-            self.lexical_index.clone(),
+            graph_store,
+            vector_index,
+            lexical_index,
             None,
         );
         self.graph_rag = Some(graph_rag);
         Ok(())
     }
-    
+
     /// Create a new memory space.
     pub fn create_space(&mut self, name: String) -> Result<()> {
         if self.spaces.contains_key(&name) {
@@ -95,7 +100,7 @@ impl MemoryStore {
         // Store in sled for persistence
         let key = format!("memory:{}", entry.id);
         let value = serde_json::to_vec(&entry)
-            .map_err(|e| GraphyneError::Serialization(e.to_string()))?;
+            .map_err(|e| GraphyneError::Serialization(e))?;
         self.db.insert(key.as_bytes(), value)?;
 
         // Index in lexical store (for text search)
@@ -135,16 +140,16 @@ impl MemoryStore {
 
         Ok(entry.id)
     }
-    
+
     /// Store a memory entry with graph relationships.
     pub fn store_memory_with_graph(
-        &mut self, 
-        mut entry: MemoryEntry, 
+        &mut self,
+        mut entry: MemoryEntry,
         relationships: Vec<(String, String, String)> // (from_id, edge_type, to_id)
     ) -> Result<String> {
         // Store the memory first
         let memory_id = self.store_memory(entry, None)?;
-        
+
         // Create relationships in graph
         for (from_id, edge_type, to_id) in relationships {
             // Ensure both nodes exist
@@ -158,7 +163,7 @@ impl MemoryStore {
                     None,
                 )?;
             }
-            
+
             if self.graph_store.get_node(&to_id)?.is_none() {
                 // Create a placeholder node if it doesn't exist
                 self.graph_store.add_node(
@@ -169,7 +174,7 @@ impl MemoryStore {
                     None,
                 )?;
             }
-            
+
             // Add edge
             self.graph_store.add_edge(
                 &from_id,
@@ -179,7 +184,7 @@ impl MemoryStore {
                 1.0,
             )?;
         }
-        
+
         Ok(memory_id)
     }
 
@@ -188,16 +193,16 @@ impl MemoryStore {
         let key = format!("memory:{}", id);
         if let Some(data) = self.db.get(key.as_bytes())? {
             let mut entry: MemoryEntry = serde_json::from_slice(&data)
-                .map_err(|e| GraphyneError::Serialization(e.to_string()))?;
-            
+                .map_err(|e| GraphyneError::Serialization(e))?;
+
             // Update access information
             entry.access();
-            
+
             // Update in storage
             let value = serde_json::to_vec(&entry)
-                .map_err(|e| GraphyneError::Serialization(e.to_string()))?;
+                .map_err(|e| GraphyneError::Serialization(e))?;
             self.db.insert(key.as_bytes(), value)?;
-            
+
             Ok(Some(entry))
         } else {
             Ok(None)
@@ -209,7 +214,7 @@ impl MemoryStore {
         let key = format!("memory:{}", id);
         if let Some(data) = self.db.get(key.as_bytes())? {
             let mut entry: MemoryEntry = serde_json::from_slice(&data)
-                .map_err(|e| GraphyneError::Serialization(e.to_string()))?;
+                .map_err(|e| GraphyneError::Serialization(e))?;
 
             // Apply updates
             if let Some(content) = updates.content {
@@ -250,7 +255,7 @@ impl MemoryStore {
 
             // Save updated entry
             let value = serde_json::to_vec(&entry)
-                .map_err(|e| GraphyneError::Serialization(e.to_string()))?;
+                .map_err(|e| GraphyneError::Serialization(e))?;
             self.db.insert(key.as_bytes(), value)?;
 
             Ok(())
@@ -278,7 +283,7 @@ impl MemoryStore {
         let mut results: HashMap<String, (MemoryEntry, f32)> = HashMap::new();
 
         // Get the space for scoring config
-        let space_name = query.include_metadata; // This is a hack, we need to pass space name differently
+        let _space_name = query.include_metadata; // This is a hack, we need to pass space name differently
         // For now, use default space
         let space = self.spaces.get(&self.default_space)
             .ok_or_else(|| GraphyneError::InvalidInput("Default space not found".to_string()))?;
@@ -353,7 +358,7 @@ impl MemoryStore {
 
         Ok(filtered_results)
     }
-    
+
     /// Recall memories using GraphRAG for enhanced context.
     pub fn recall_with_graph(&self, query: &str, max_hops: Option<usize>, limit: Option<usize>) -> Result<crate::graph::rag::GraphRAGResult> {
         if let Some(ref graph_rag) = self.graph_rag {
@@ -370,7 +375,7 @@ impl MemoryStore {
         let key = format!("memory:{}", id);
         if let Some(data) = self.db.get(key.as_bytes())? {
             let entry: MemoryEntry = serde_json::from_slice(&data)
-                .map_err(|e| GraphyneError::Serialization(e.to_string()))?;
+                .map_err(|e| GraphyneError::Serialization(e))?;
             Ok(Some(entry))
         } else {
             Ok(None)
@@ -379,14 +384,14 @@ impl MemoryStore {
 
     /// List all memories in a space.
     pub fn list_memories(&self, space: Option<&str>, limit: usize) -> Result<Vec<MemoryEntry>> {
-        let space_name = space.unwrap_or(&self.default_space);
+        let _space_name = space.unwrap_or(&self.default_space);
         let prefix = format!("memory:");
         let mut results = Vec::new();
 
         for item in self.db.scan_prefix(prefix.as_bytes()) {
-            let (key, value) = item?;
+            let (_key, value) = item?;
             let entry: MemoryEntry = serde_json::from_slice(&value)
-                .map_err(|e| GraphyneError::Serialization(e.to_string()))?;
+                .map_err(|e| GraphyneError::Serialization(e))?;
             results.push(entry);
             if results.len() >= limit {
                 break;
@@ -411,7 +416,7 @@ impl MemoryStore {
         for item in self.db.scan_prefix(prefix.as_bytes()) {
             let (key, value) = item?;
             let entry: MemoryEntry = serde_json::from_slice(&value)
-                .map_err(|e| GraphyneError::Serialization(e.to_string()))?;
+                .map_err(|e| GraphyneError::Serialization(e))?;
             entries.push((key, entry));
         }
 

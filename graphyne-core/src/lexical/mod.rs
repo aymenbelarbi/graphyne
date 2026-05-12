@@ -196,9 +196,9 @@ impl LexicalIndex {
     /// Push text into the index for a given document.
     pub fn push_text(&mut self, collection: &str, bucket: &str, doc_id: &str, text: &str) -> Result<()> {
         if collection.is_empty() || bucket.is_empty() || doc_id.is_empty() {
-            return Err(GraphyneError::Lexical(LexicalError::InvalidName(
+            return Err(GraphyneError::Lexical(
                 "Collection, bucket, and doc_id must not be empty".to_string()
-            )));
+            ));
         }
         
         // Tokenize the text
@@ -255,9 +255,9 @@ impl LexicalIndex {
     /// Search for documents matching the query using BM25 scoring.
     pub fn search(&self, collection: &str, bucket: &str, query: &str, limit: usize) -> Result<Vec<(String, f32)>> {
         if collection.is_empty() || bucket.is_empty() {
-            return Err(GraphyneError::Lexical(LexicalError::InvalidName(
+            return Err(GraphyneError::Lexical(
                 "Collection and bucket must not be empty".to_string()
-            )));
+            ));
         }
         
         // Tokenize query

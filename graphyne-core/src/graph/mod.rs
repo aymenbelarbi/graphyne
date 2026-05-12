@@ -86,6 +86,14 @@ pub struct GraphStore {
 }
 
 impl GraphStore {
+    /// Iterate over all nodes in the graph.
+    pub fn iter_nodes(&self) -> Vec<GraphNode> {
+        self.graph
+            .node_indices()
+            .filter_map(|idx| self.graph.node_weight(idx).cloned())
+            .collect()
+    }
+
     /// Create a new graph store with the given sled database.
     pub fn new(db: &sled::Db) -> Result<Self> {
         let nodes_store = db.open_tree("graph_nodes")?;

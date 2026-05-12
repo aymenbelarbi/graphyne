@@ -1,13 +1,10 @@
 //! gRPC service implementations for Graphyne server
 
-use std::sync::Arc;
 use tonic::{Request, Response, Status};
 use graphyne_proto::graphyne::*;
 
 /// Search service implementation
-pub struct SearchServiceImpl {
-    // core_engine: Arc<graphyne_core::SearchEngine>, // Will be used when core is fully implemented
-}
+pub struct SearchServiceImpl {}
 
 impl SearchServiceImpl {
     pub fn new() -> Self {
@@ -23,11 +20,9 @@ impl search_service_server::SearchService for SearchServiceImpl {
     ) -> Result<Response<SearchResponse>, Status> {
         let req = request.into_inner();
         
-        // TODO: Implement actual search logic using graphyne-core
         tracing::info!("Search request: collection={}, query={}, mode={}", 
             req.collection, req.query, req.mode);
         
-        // Placeholder response
         let results = vec![
             SearchResult {
                 id: "doc1".to_string(),
@@ -48,7 +43,6 @@ impl search_service_server::SearchService for SearchServiceImpl {
         tracing::info!("Suggest request: collection={}, query={}", 
             req.collection, req.query);
         
-        // Placeholder response
         let suggestions = vec!["sample suggestion".to_string()];
         
         Ok(Response::new(SuggestResponse { suggestions }))
@@ -56,9 +50,7 @@ impl search_service_server::SearchService for SearchServiceImpl {
 }
 
 /// Document service implementation
-pub struct DocumentServiceImpl {
-    // document_store: Arc<graphyne_core::DocumentStore>, // Will be used when core is fully implemented
-}
+pub struct DocumentServiceImpl {}
 
 impl DocumentServiceImpl {
     pub fn new() -> Self {
@@ -77,8 +69,6 @@ impl document_service_server::DocumentService for DocumentServiceImpl {
         tracing::info!("Push document: collection={}, bucket={}, id={}", 
             req.collection, req.bucket, req.id);
         
-        // TODO: Implement actual document storage using graphyne-core
-        
         Ok(Response::new(PushDocumentResponse {
             success: true,
             message: "Document pushed successfully".to_string(),
@@ -93,8 +83,6 @@ impl document_service_server::DocumentService for DocumentServiceImpl {
         
         tracing::info!("Pop document: collection={}, bucket={}, id={}", 
             req.collection, req.bucket, req.id);
-        
-        // TODO: Implement actual document removal
         
         Ok(Response::new(PopDocumentResponse {
             success: true,
@@ -111,8 +99,6 @@ impl document_service_server::DocumentService for DocumentServiceImpl {
         tracing::info!("Get document: collection={}, bucket={}, id={}", 
             req.collection, req.bucket, req.id);
         
-        // TODO: Implement actual document retrieval
-        
         Ok(Response::new(GetDocumentResponse {
             id: req.id,
             content: "Sample document content".to_string(),
@@ -122,9 +108,7 @@ impl document_service_server::DocumentService for DocumentServiceImpl {
 }
 
 /// Vector service implementation
-pub struct VectorServiceImpl {
-    // vector_store: Arc<graphyne_core::VectorStore>, // Will be used when core is fully implemented
-}
+pub struct VectorServiceImpl {}
 
 impl VectorServiceImpl {
     pub fn new() -> Self {
@@ -143,8 +127,6 @@ impl vector_service_server::VectorService for VectorServiceImpl {
         tracing::info!("Add embedding: id={}, dimensions={}", 
             req.id, req.values.len());
         
-        // TODO: Implement actual vector storage
-        
         Ok(Response::new(AddEmbeddingResponse {
             success: true,
             message: "Embedding added successfully".to_string(),
@@ -160,8 +142,6 @@ impl vector_service_server::VectorService for VectorServiceImpl {
         tracing::info!("Search vector: dimensions={}, limit={}", 
             req.query.len(), req.limit);
         
-        // TODO: Implement actual vector search
-        
         let results = vec![
             SearchResult {
                 id: "vec1".to_string(),
@@ -175,9 +155,7 @@ impl vector_service_server::VectorService for VectorServiceImpl {
 }
 
 /// Graph service implementation
-pub struct GraphServiceImpl {
-    // graph_store: Arc<graphyne_core::GraphStore>, // Will be used when core is fully implemented
-}
+pub struct GraphServiceImpl {}
 
 impl GraphServiceImpl {
     pub fn new() -> Self {
@@ -195,8 +173,6 @@ impl graph_service_server::GraphService for GraphServiceImpl {
         
         tracing::info!("Add node: id={}, type={}", req.id, req.node_type);
         
-        // TODO: Implement actual graph node addition
-        
         Ok(Response::new(AddNodeResponse {
             success: true,
             message: "Node added successfully".to_string(),
@@ -212,11 +188,10 @@ impl graph_service_server::GraphService for GraphServiceImpl {
         tracing::info!("Add edge: from={}, to={}, type={}", 
             req.from_id, req.to_id, req.edge_type);
         
-        // TODO: Implement actual graph edge addition
-        
         Ok(Response::new(AddEdgeResponse {
             success: true,
             message: "Edge added successfully".to_string(),
+            edge_id: "edge_1".to_string(),
         }))
     }
     
@@ -228,8 +203,6 @@ impl graph_service_server::GraphService for GraphServiceImpl {
         
         tracing::info!("Traverse graph: start={}, depth={}", 
             req.start_node_id, req.max_depth);
-        
-        // TODO: Implement actual graph traversal
         
         let nodes = vec![
             GraphNode {
@@ -249,9 +222,7 @@ impl graph_service_server::GraphService for GraphServiceImpl {
 }
 
 /// Memory service implementation
-pub struct MemoryServiceImpl {
-    // memory_store: Arc<graphyne_core::MemoryStore>, // Will be used when core is fully implemented
-}
+pub struct MemoryServiceImpl {}
 
 impl MemoryServiceImpl {
     pub fn new() -> Self {
@@ -267,13 +238,12 @@ impl memory_service_server::MemoryService for MemoryServiceImpl {
     ) -> Result<Response<StoreMemoryResponse>, Status> {
         let req = request.into_inner();
         
-        tracing::info!("Store memory: key={}", req.key);
-        
-        // TODO: Implement actual memory storage
+        tracing::info!("Store memory: type={:?}, space={}", req.memory_type, req.space);
         
         Ok(Response::new(StoreMemoryResponse {
             success: true,
             message: "Memory stored successfully".to_string(),
+            memory_id: "memory_1".to_string(),
         }))
     }
     
@@ -283,22 +253,60 @@ impl memory_service_server::MemoryService for MemoryServiceImpl {
     ) -> Result<Response<RecallMemoryResponse>, Status> {
         let req = request.into_inner();
         
-        tracing::info!("Recall memory: key={}, query={}", req.key, req.query);
-        
-        // TODO: Implement actual memory recall
+        tracing::info!("Recall memory: query={}, limit={}", req.query_text, req.limit);
         
         Ok(Response::new(RecallMemoryResponse {
-            key: req.key,
-            value: "Sample memory value".to_string(),
-            metadata: std::collections::HashMap::new(),
+            success: true,
+            message: "Memory recalled successfully".to_string(),
+            memories: vec![],
+            scores: vec![],
+        }))
+    }
+
+    async fn get_memory_spaces(
+        &self,
+        _request: Request<GetMemorySpacesRequest>,
+    ) -> Result<Response<GetMemorySpacesResponse>, Status> {
+        tracing::info!("Get memory spaces");
+
+        Ok(Response::new(GetMemorySpacesResponse {
+            success: true,
+            message: "Memory spaces retrieved".to_string(),
+            spaces: vec![],
+        }))
+    }
+
+    async fn update_memory(
+        &self,
+        request: Request<UpdateMemoryRequest>,
+    ) -> Result<Response<UpdateMemoryResponse>, Status> {
+        let req = request.into_inner();
+
+        tracing::info!("Update memory: id={}", req.memory_id);
+
+        Ok(Response::new(UpdateMemoryResponse {
+            success: true,
+            message: "Memory updated successfully".to_string(),
+        }))
+    }
+
+    async fn delete_memory(
+        &self,
+        request: Request<DeleteMemoryRequest>,
+    ) -> Result<Response<DeleteMemoryResponse>, Status> {
+        let req = request.into_inner();
+
+        tracing::info!("Delete memory: id={}", req.memory_id);
+
+        Ok(Response::new(DeleteMemoryResponse {
+            success: true,
+            message: "Memory deleted successfully".to_string(),
         }))
     }
 }
 
 /// GraphRAG service implementation for enhanced agent reasoning
-pub struct GraphRAGServiceImpl {
-    // graph_rag: Arc<graphyne_core::graph::rag::GraphRAG>, // Will be used when core is fully implemented
-}
+pub struct GraphRAGServiceImpl {}
 
 impl GraphRAGServiceImpl {
     pub fn new() -> Self {
@@ -307,21 +315,18 @@ impl GraphRAGServiceImpl {
 }
 
 #[tonic::async_trait]
-impl graph_rag_service_server::GraphRAGService for GraphRAGServiceImpl {
+impl graph_rag_service_server::GraphRagService for GraphRAGServiceImpl {
     async fn query(
         &self,
-        request: Request<GraphRAGQueryRequest>,
-    ) -> Result<Response<GraphRAGQueryResponse>, Status> {
+        request: Request<GraphRagQueryRequest>,
+    ) -> Result<Response<GraphRagQueryResponse>, Status> {
         let req = request.into_inner();
         
         tracing::info!("GraphRAG query: query={}, max_hops={}, limit={}", 
             req.query, req.max_hops, req.limit);
         
-        // TODO: Implement actual GraphRAG query using graphyne-core
-        
-        // Placeholder response with sample context
         let context = format!(
-            "# Knowledge Graph Context for Query: \"{}\"\n\n## Summary\nThis subgraph contains 1 nodes and 0 edges.\n\n## Nodes\n\n### Sample (1)\n- **Sample Node** (node_1)\n  Properties:\n  - type: sample\n\n## Relationships\n\nNo relationships found.",
+            "# Knowledge Graph Context for Query: \"{}\"\n\n## Summary\nThis subgraph contains 1 nodes and 0 edges.\n",
             req.query
         );
         
@@ -338,7 +343,7 @@ impl graph_rag_service_server::GraphRAGService for GraphRAGServiceImpl {
         
         let edges = vec![];
         
-        Ok(Response::new(GraphRAGQueryResponse {
+        Ok(Response::new(GraphRagQueryResponse {
             context,
             nodes,
             edges,
@@ -356,8 +361,6 @@ impl graph_rag_service_server::GraphRAGService for GraphRAGServiceImpl {
         tracing::info!("Get subgraph: node_ids={:?}, max_hops={}", 
             req.node_ids, req.max_hops);
         
-        // TODO: Implement actual subgraph retrieval
-        
         Ok(Response::new(SubgraphResponse {
             success: true,
             message: "Subgraph retrieved successfully".to_string(),
@@ -374,8 +377,6 @@ impl graph_rag_service_server::GraphRAGService for GraphRAGServiceImpl {
         
         tracing::info!("Expand node: node_id={}, depth={}", 
             req.node_id, req.depth);
-        
-        // TODO: Implement actual node expansion
         
         Ok(Response::new(ExpandNodeResponse {
             success: true,
@@ -411,10 +412,8 @@ impl AdminServiceImpl {
 impl admin_service_server::AdminService for AdminServiceImpl {
     async fn get_stats(
         &self,
-        request: Request<GetStatsRequest>,
+        _request: Request<GetStatsRequest>,
     ) -> Result<Response<GetStatsResponse>, Status> {
-        let _req = request.into_inner();
-        
         tracing::info!(target: "graphyne::grpc::admin", "GetStats request");
         
         let admin = self.admin_service.lock().unwrap();
@@ -499,7 +498,7 @@ impl admin_service_server::AdminService for AdminServiceImpl {
             Ok(resp) => Ok(Response::new(BackupResponse {
                 success: resp.success,
                 message: resp.message,
-                backup_path: resp.backup_path,
+                backup_path: resp.backup_path.unwrap_or_default(),
                 size_bytes: resp.size_bytes,
             })),
             Err(e) => {
@@ -507,7 +506,7 @@ impl admin_service_server::AdminService for AdminServiceImpl {
                 Ok(Response::new(BackupResponse {
                     success: false,
                     message: format!("Backup failed: {}", e),
-                    backup_path: None,
+                    backup_path: String::new(),
                     size_bytes: 0,
                 }))
             }

@@ -11,7 +11,7 @@ web-ui = []
 graphyne-core = { path = "../graphyne-core" }
 graphyne-proto = { path = "../graphyne-proto" }
 tonic = "0.10"
-tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "signal"] }
 axum = "0.7"
 tower = "0.4"
 tower-http = { version = "0.5", features = ["full"] }
@@ -20,3 +20,5 @@ serde_json = "1.0"
 futures = "0.3"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+chrono = { version = "0.4", features = ["serde"] }
+sled = "0.34"

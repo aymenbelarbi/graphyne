@@ -180,7 +180,7 @@ impl GraphRAG {
         
         // Use lexical search to find relevant nodes
         // We search in a default collection and bucket
-        let search_results = self.lexical_index.search("default", "GraphNode", query, 20);
+        let search_results = self.lexical_index.search("default", "GraphNode", query, 20)?;
         
         for result in search_results {
             // The result id should correspond to a node id
@@ -191,12 +191,10 @@ impl GraphRAG {
         
         // If no results from lexical search, try to find nodes by label match
         if seed_nodes.is_empty() {
-            for idx in self.graph_store.graph.node_indices() {
-                if let Some(node) = self.graph_store.graph.node_weight(idx) {
-                    if node.label.to_lowercase().contains(&query.to_lowercase()) ||
-                       node.node_type.to_lowercase().contains(&query.to_lowercase()) {
-                        seed_nodes.insert(node.id.clone(), 0.5);
-                    }
+            for node in self.graph_store.iter_nodes() {
+                if node.label.to_lowercase().contains(&query.to_lowercase()) ||
+                   node.node_type.to_lowercase().contains(&query.to_lowercase()) {
+                    seed_nodes.insert(node.id.clone(), 0.5);
                 }
             }
         }

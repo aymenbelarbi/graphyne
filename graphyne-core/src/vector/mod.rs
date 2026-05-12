@@ -196,9 +196,9 @@ impl VectorIndex {
             
             Ok(formatted_results)
         } else {
-            Err(GraphyneError::Vector(VectorError::NotFound(
+            Err(GraphyneError::Vector(
                 "HNSW index not initialized".to_string()
-            )))
+            ))
         }
     }
     

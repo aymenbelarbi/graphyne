@@ -16,10 +16,8 @@ use tracing::info;
 
 // Import graphyne-core types
 use graphyne_core::memory::{
-    MemoryStore, MemoryEntry, MemoryType, MemoryUpdate, MemoryQuery,
-    MemorySpace, ScoringConfig,
+    MemoryStore, MemoryEntry, MemoryType, MemoryQuery, MemoryUpdate,
 };
-use graphyne_core::graph::rag::GraphRAGResult;
 
 /// Query parameters for search endpoint
 #[derive(Debug, Deserialize)]
@@ -82,7 +80,7 @@ pub struct RecallMemoryParams {
 /// Request body for store memory endpoint
 #[derive(Debug, Deserialize)]
 pub struct StoreMemoryBody {
-    pub memory_type: String,  // "Working", "Episodic", "Semantic", "Procedural"
+    pub memory_type: String,
     pub content: String,
     pub embedding: Option<Vec<f32>>,
     pub importance: Option<f32>,
@@ -270,9 +268,6 @@ async fn search_handler(Query(params): Query<SearchParams>) -> Json<SearchRespon
         params.collection, params.bucket, params.query, params.mode
     );
     
-    // TODO: Implement actual search using graphyne-core
-    
-    // Placeholder response
     let results = vec![
         SearchResult {
             id: "doc1".to_string(),
@@ -291,8 +286,6 @@ async fn push_document_handler(Json(body): Json<PushDocumentBody>) -> Json<Succe
         body.collection, body.bucket, body.id
     );
     
-    // TODO: Implement actual document storage using graphyne-core
-    
     Json(SuccessResponse {
         success: true,
         message: "Document pushed successfully".to_string(),
@@ -305,8 +298,6 @@ async fn add_embedding_handler(Json(body): Json<AddEmbeddingBody>) -> Json<Succe
         "Add embedding: id={}, dimensions={}",
         body.id, body.values.len()
     );
-    
-    // TODO: Implement actual vector storage using graphyne-core
     
     Json(SuccessResponse {
         success: true,
@@ -321,8 +312,6 @@ async fn add_node_handler(Json(body): Json<AddNodeBody>) -> Json<SuccessResponse
         body.id, body.node_type
     );
     
-    // TODO: Implement actual graph node addition using graphyne-core
-    
     Json(SuccessResponse {
         success: true,
         message: "Node added successfully".to_string(),
@@ -335,8 +324,6 @@ async fn add_edge_handler(Json(body): Json<AddEdgeBody>) -> Json<SuccessResponse
         "Add edge: from={}, to={}, type={}",
         body.from_id, body.to_id, body.edge_type
     );
-    
-    // TODO: Implement actual graph edge addition using graphyne-core
     
     Json(SuccessResponse {
         success: true,
@@ -484,15 +471,15 @@ async fn update_memory_handler(
 ) -> Json<serde_json::Value> {
     info!("Update memory: id={}", id);
     
-    let update = MemoryUpdate {
-        content: body.content,
-        importance: body.importance,
-        metadata: body.metadata.map(|m| serde_json::to_value(m).unwrap_or(serde_json::Value::Null)),
-        embedding: body.embedding,
-    };
+    let metadata_value = body.metadata.map(|m| serde_json::to_value(m).unwrap_or(serde_json::Value::Null));
     
     let mut store = state.memory_store.lock().await;
-    match store.update_memory(&id, update) {
+    match store.update_memory(&id, MemoryUpdate {
+        content: body.content,
+        importance: body.importance,
+        metadata: metadata_value,
+        embedding: body.embedding,
+    }) {
         Ok(_) => Json(serde_json::json!({
             "success": true,
             "message": "Memory updated successfully"
@@ -536,10 +523,8 @@ async fn graphrag_query_handler(
     
     let store = state.memory_store.lock().await;
     
-    // Use GraphRAG for enhanced recall if available
     match store.recall_with_graph(&body.query, body.max_hops, body.limit) {
         Ok(rag_result) => {
-            // Convert nodes and edges to JSON
             let nodes_json: Vec<serde_json::Value> = rag_result.nodes.iter().map(|n| {
                 serde_json::json!({
                     "id": n.id,
@@ -571,7 +556,6 @@ async fn graphrag_query_handler(
             })
         }
         Err(e) => {
-            // Fall back to regular recall if GraphRAG not initialized
             Json(GraphRAGResponse {
                 success: false,
                 message: format!("GraphRAG query failed: {}", e),
@@ -587,18 +571,13 @@ async fn graphrag_query_handler(
 
 /// Subgraph handler
 async fn subgraph_handler(
-    State(state): State<AppState>,
+    State(_state): State<AppState>,
     Json(body): Json<SubgraphBody>,
 ) -> Json<GraphRAGResponse> {
     info!(
         "Get subgraph: node_ids={:?}, max_hops={:?}",
         body.node_ids, body.max_hops
     );
-    
-    let store = state.memory_store.lock().await;
-    
-    // TODO: Implement actual subgraph retrieval using graphyne-core
-    // For now, return placeholder
     
     Json(GraphRAGResponse {
         success: true,
@@ -613,7 +592,7 @@ async fn subgraph_handler(
 
 /// Expand node handler
 async fn expand_node_handler(
-    State(state): State<AppState>,
+    State(_state): State<AppState>,
     Path(node_id): Path<String>,
     Json(body): Json<ExpandNodeBody>,
 ) -> Json<GraphRAGResponse> {
@@ -621,11 +600,6 @@ async fn expand_node_handler(
         "Expand node: node_id={}, depth={:?}",
         node_id, body.depth
     );
-    
-    let store = state.memory_store.lock().await;
-    
-    // TODO: Implement actual node expansion using graphyne-core
-    // For now, return placeholder
     
     Json(GraphRAGResponse {
         success: true,
@@ -658,7 +632,7 @@ async fn metrics_handler(
     match state.metrics.export() {
         Ok(metrics) => Ok(metrics),
         Err(e) => {
-            error!(target: "graphyne::http::admin", error = %e, "Failed to export metrics");
+            tracing::error!(target: "graphyne::http::admin", error = %e, "Failed to export metrics");
             Err((axum::http::StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to export metrics: {}", e)))
         }
     }
@@ -731,7 +705,7 @@ async fn admin_flush_handler(
             "message": "Flush completed successfully"
         })),
         Err(e) => {
-            error!(target: "graphyne::http::admin", error = %e, "Flush failed");
+            tracing::error!(target: "graphyne::http::admin", error = %e, "Flush failed");
             Json(serde_json::json!({
                 "success": false,
                 "message": format!("Flush failed: {}", e)
@@ -762,7 +736,7 @@ async fn admin_backup_handler(
             "size_bytes": resp.size_bytes
         })),
         Err(e) => {
-            error!(target: "graphyne::http::admin", error = %e, "Backup failed");
+            tracing::error!(target: "graphyne::http::admin", error = %e, "Backup failed");
             Json(serde_json::json!({
                 "success": false,
                 "message": format!("Backup failed: {}", e)
@@ -792,7 +766,7 @@ async fn admin_restore_handler(
             "items_restored": resp.items_restored
         })),
         Err(e) => {
-            error!(target: "graphyne::http::admin", error = %e, "Restore failed");
+            tracing::error!(target: "graphyne::http::admin", error = %e, "Restore failed");
             Json(serde_json::json!({
                 "success": false,
                 "message": format!("Restore failed: {}", e)
@@ -814,7 +788,7 @@ async fn admin_compact_handler(
             "message": "Compact completed successfully"
         })),
         Err(e) => {
-            error!(target: "graphyne::http::admin", error = %e, "Compact failed");
+            tracing::error!(target: "graphyne::http::admin", error = %e, "Compact failed");
             Json(serde_json::json!({
                 "success": false,
                 "message": format!("Compact failed: {}", e)

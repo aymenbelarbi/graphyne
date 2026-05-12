@@ -4,7 +4,6 @@
 
 use std::net::SocketAddr;
 use std::sync::Arc;
-use tokio::signal;
 use tracing::{info, error};
 
 mod grpc;
@@ -32,10 +31,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     
     // Create metrics and health checker
     let metrics = Arc::new(graphyne_core::metrics::GraphyneMetrics::new()?);
-    let health_checker = graphyne_core::health::HealthChecker::new();
+    let health_checker = Arc::new(graphyne_core::health::HealthChecker::new());
     let admin_service = graphyne_core::admin::AdminService::new(
         Arc::clone(&metrics),
-        health_checker.clone(),
+        graphyne_core::health::HealthChecker::new(),
     );
     
     // Create service implementations
@@ -46,7 +45,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let memory_service = MemoryServiceImpl::new();
     let admin_grpc_service = AdminServiceImpl::new(
         Arc::clone(&metrics),
-        health_checker.clone(),
+        graphyne_core::health::HealthChecker::new(),
         admin_service,
     );
     
@@ -54,13 +53,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let grpc_addr: SocketAddr = "0.0.0.0:50051".parse()?;
     let http_addr: SocketAddr = "0.0.0.0:8080".parse()?;
     
+    // Create a temporary directory for the sled database
+    let db_path = std::env::temp_dir().join("graphyne_server_db");
+    let db = sled::open(&db_path)?;
+    
     // Create HTTP app state
     let http_state = http::AppState {
         memory_store: Arc::new(tokio::sync::Mutex::new(
-            graphyne_core::memory::MemoryStore::new()
+            graphyne_core::memory::MemoryStore::new(db)?
         )),
         metrics: Arc::clone(&metrics),
-        health_checker: Arc::new(health_checker),
+        health_checker: Arc::clone(&health_checker),
         admin_service: Arc::new(tokio::sync::Mutex::new(
             graphyne_core::admin::AdminService::new(
                 Arc::clone(&metrics),
@@ -130,7 +133,7 @@ async fn shutdown_signal() {
     
     #[cfg(not(unix))]
     {
-        signal::ctrl_c()
+        tokio::signal::ctrl_c()
             .await
             .expect("Failed to install Ctrl+C handler");
         info!("Received Ctrl+C");

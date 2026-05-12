@@ -435,7 +435,14 @@ async fn main() -> Result<()> {
                 rag_grpc(&config, command).await?;
             }
         }
-        
+
+        Commands::Admin { command } => {
+            if cli.http {
+                admin_http(&config, command).await?;
+            } else {
+                admin_grpc(&config, command).await?;
+            }
+        }
 
     }
     
